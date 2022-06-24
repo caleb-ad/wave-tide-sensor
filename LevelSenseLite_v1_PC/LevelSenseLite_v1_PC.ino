@@ -63,12 +63,6 @@
 
 const u_long startMillis = millis();
 
-//For sleep
-long SLEEP_TIME;
-
-//For sonar measurements
-
-
 //Clock variables
 DS3232RTC myClock(false); //For non AVR boards (ESP32)
 
@@ -246,8 +240,8 @@ void updateTime(time_t t)
   displayTime = String(buf);
 }
 
-//Update Sleep Time
-long updateSleep()
+//returns the time to sleep in seconds
+long get_sleep_time()
 {
   //Update the current minute (0-59) and convert to seconds
   int nowTime = 60*minute(now()) + second(now());
@@ -306,8 +300,8 @@ void loop()
   digitalWrite(LED_BUILTIN, LOW); //Turns off LED before going to sleep
 
   //Prepare deep sleep
-  updateSleep(); //Set sleep time
-  esp_sleep_enable_timer_wakeup(secs_to_microsecs(SLEEP_TIME));
+  long sleep_time = get_sleep_time();
+  esp_sleep_enable_timer_wakeup(secs_to_microsecs(sleep_time));
   esp_sleep_enable_ext0_wakeup(GPIO_NUM_13, 1);
   gpio_hold_en(GPIO_NUM_33); //Make sure Maxbotix is off
   gpio_deep_sleep_hold_en();
@@ -317,7 +311,7 @@ void loop()
   updateTime(now());
   Serial.println(displayTime);
   Serial.print("Sleep until: ");
-  updateTime(now() + SLEEP_TIME);
+  updateTime(now() + sleep_time);
   Serial.print(displayTime);
 
   //Go to sleep
