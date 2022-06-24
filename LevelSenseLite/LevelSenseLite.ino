@@ -66,9 +66,24 @@ const u_long startMillis = millis();
 //Clock variables
 DS3232RTC myClock(false); //For non AVR boards (ESP32)
 
+// represents the current time formatted for display and the unix time
+// display: hrs:min:sec.millis
+// unix: unix_sec.millis
 struct FormattedTimes {
   String unix;
   String display;
+
+  FormattedTimes(time_t current_t)
+  {
+    char buf[FORMAT_BUF_SIZE];
+    unsigned long current_millis = (millis() - startMillis) % 1000;
+
+    sprintf(buf, "%d.%03d", current_t, current_millis);
+    this->unix = String(buf);
+
+    sprintf(buf, "%d:%d:%d.%03d", hour(current_t), minute(current_t), second(current_t), current_millis);
+    this->display = String(buf);
+  }
 };
 
 //-----------------------------------------------------------------------------------
@@ -153,7 +168,7 @@ void fillArrays(String *times, int *distances, double *temps)
   for (int i = 0; i < LIST_SIZE; i++)
   {
     distances[i] = sonarMeasure();
-    times[i] = get_unix_display_time(now()).unix;
+    times[i] = FormattedTimes(now()).unix;
     temps[i] = myClock.temperature() * 9.0 / 20.0 + 32.0;
 
     //Print timestamps and measurement as they are taken
@@ -182,7 +197,7 @@ void sdWrite(String *times, int *distances, double *temps)
   Serial.print("Writing ");
   Serial.print(fileName);
   Serial.print(": ");
-  Serial.println(get_unix_display_time(now()).display);
+  Serial.println(FormattedTimes(now()).display);
 
   //Iterate over entire list
   for (int i = 0; i < LIST_SIZE; i++)
@@ -220,28 +235,11 @@ void sdBegin()
     //Create header with title, timestamp, and column names
     dataFile.println("Cal Poly Tide Sensor");
     dataFile.print("Starting: ");
-    dataFile.println(get_unix_display_time(now()).display);
+    dataFile.println(FormattedTimes(now()).display);
     dataFile.println();
     dataFile.println("UNIX Time, Distance (mm), Temp (F)");
     dataFile.close();
   }
-}
-
-//updates given strings to represent the current time formatted for display and the unix time
-//NULL may safely be given as either pointer
-FormattedTimes get_unix_display_time(time_t current_t)
-{
-  char buf[FORMAT_BUF_SIZE];
-  FormattedTimes ft;
-  unsigned long current_millis = (millis() - startMillis) % 1000;
-
-  sprintf(buf, "%d.%03d", current_t, current_millis);
-  ft.unix = String(buf);
-
-  sprintf(buf, "%d:%d:%d.%03d", hour(current_t), minute(current_t), second(current_t), current_millis);
-  ft.display = String(buf);
-
-  return ft;
 }
 
 //returns the time to sleep in seconds
@@ -279,7 +277,7 @@ void setup()
   //Print start time info
   Serial.println();
   Serial.print("Starting: ");
-  Serial.println(get_unix_display_time(now()).display);
+  Serial.println(FormattedTimes(now()).display);
 
   //Check for SD header file
   sdBegin();
@@ -295,8 +293,8 @@ void loop()
 
   //Fill the reading, time, and temp arrays
   Serial.print("Filling Arrays: ");
-  Serial.println(get_unix_display_time(now()).display);
-  fillArrays(timeList, distList, tempList); //Tuns on LED if taking good measurements
+  Serial.println(FormattedTimes(now()).display);
+  fillArrays(timeList, distList, tempList); //Turns on LED if taking good measurements
 
   //Write to SD card and serial monitor
   sdWrite(timeList, distList, tempList);
@@ -311,9 +309,9 @@ void loop()
 
   //Print sleep time info
   Serial.print("Sleep: ");
-  Serial.println(get_unix_display_time(now()).display);
+  Serial.println(FormattedTimes(now()).display);
   Serial.print("Sleep until: ");
-  Serial.print(get_unix_display_time(now() + sleep_time).display);
+  Serial.print(FormattedTimes(now() + sleep_time).display);
 
   //Go to sleep
   Serial.flush();
