@@ -161,12 +161,7 @@ void fillArrays(String *times, int *distances, double *temps)
 
     updateTime(now());
     times[i] = unixTime;
-
-    temp = myClock.temperature();
-    temp *= 9.0;
-    temp /= 20.0;
-    temp += 32.0;
-    temps[i] = temp;
+    temps[i] = myClock.temperature() * 9.0 / 20.0 + 32.0;
 
     //Print timestamps and measurement as they are taken
     Serial.print(times[i]);
