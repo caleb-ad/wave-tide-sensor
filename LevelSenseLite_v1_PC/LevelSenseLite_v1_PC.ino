@@ -94,7 +94,7 @@ int sonarMeasure()
       if (rByte == 'R') //Maxbotix reports "Rxxxx", where xxxx is a 4 digit mm distance
       {
         //Read next four characters (range)
-        while (index <= 4)
+        while (index < 4)
         {
           //If there is a number, place it in array
           if (Serial2.available())
@@ -302,8 +302,8 @@ void loop()
   //Prepare deep sleep
   long sleep_time = get_sleep_time();
   esp_sleep_enable_timer_wakeup(secs_to_microsecs(sleep_time));
-  esp_sleep_enable_ext0_wakeup(GPIO_NUM_13, 1);
-  gpio_hold_en(GPIO_NUM_33); //Make sure Maxbotix is off
+  esp_sleep_enable_ext0_wakeup(BUTTON_PIN, 1);
+  gpio_hold_en(SONAR_ENABLE_PIN); //Make sure Maxbotix is off
   gpio_deep_sleep_hold_en();
 
   //Print sleep time info
