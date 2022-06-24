@@ -90,70 +90,27 @@ struct FormattedTimes {
 //Get a reading from the sonar
 int sonarMeasure()
 {
-  int result;
-  char inData[4]; //char array to read data into
-  int index = 0;
-  boolean stringComplete = false;
-
+  char inData[5] = {0}; //char array to read data into
   // Clear cache ready for next reading
   Serial2.flush();
 
-  //Try until it gets an actual reading
-  while (stringComplete == false)
+  //Wait for device to be ready
+  while (!Serial2.available()){}
+
+  //Maxbotix reports "Rxxxx", where xxxx is a 4 digit mm distance
+  while (Serial2.read() != 'R'){}
+  Serial2.readBytes(inData, 4);
+
+  uint result = atoi(inData);
+
+  //Turn on LED if measuring properly
+  //Maxbotix reports 300 if object is too close
+  //or you'll get 0 if wired improperly
+  if ((result > 500) and (result < 9999))
   {
-    //If sensor has data available
-    if (Serial2.available())
-    {
-      //Read serial input
-      char rByte = Serial2.read();
-
-      //If the first character is an "R"
-      if (rByte == 'R') //Maxbotix reports "Rxxxx", where xxxx is a 4 digit mm distance
-      {
-        //Read next four characters (range)
-        while (index < 4)
-        {
-          //If there is a number, place it in array
-          if (Serial2.available())
-          {
-            inData[index] = Serial2.read();
-            index++;
-          }
-        }
-
-        //add a padding byte at end for atoi() function
-        inData[index] = 0x00;
-      }
-
-      //"R" is not the first character
-      else
-      {
-        //Clear the serial channel for next reading
-        Serial2.flush();
-      }
-
-      //Reset before next reading
-      rByte = 0;
-      index = 0;
-      stringComplete = true;
-
-      //Changes string data into an integer for use
-      result = atoi(inData);
-
-      //Turn on LED if measuring properly
-      //Maxbotix reports 300 if object is too close
-      //or you'll get 0 if wired improperly
-      if ((result > 500) and (result < 9999))
-      {
-        digitalWrite(LED_BUILTIN, HIGH);
-      }
-      else digitalWrite(LED_BUILTIN, LOW);
-
-    }
+    digitalWrite(LED_BUILTIN, HIGH);
   }
-
-  //Reset for next reading
-  stringComplete = false;
+  else digitalWrite(LED_BUILTIN, LOW);
 
   return result;
 }
