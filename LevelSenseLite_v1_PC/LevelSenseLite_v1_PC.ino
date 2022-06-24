@@ -57,24 +57,22 @@
 //const int LED = 25; //LED pin
 #define LED_BUILTIN GPIO_NUM_25 //i don't think this exists on this board
 
+const u_long startMillis = millis();
+
 //For sleep
 long SLEEP_TIME;
 
 //For sonar measurements
-int sonarDist;
-int readList[LIST_SIZE];
-boolean stringComplete = false;
+
 
 //Clock variables
 DS3232RTC myClock(false); //For non AVR boards (ESP32)
-String timeList[LIST_SIZE];
-unsigned long startMillis;
+
 String unixTime;
 String displayTime;
 
 //For temp measurements
 double temp;
-double tempList[LIST_SIZE];
 
 
 
@@ -85,6 +83,7 @@ int sonarMeasure()
   int result;
   char inData[4]; //char array to read data into
   int index = 0;
+  boolean stringComplete = false;
 
   // Clear cache ready for next reading
   Serial2.flush();
@@ -150,32 +149,31 @@ int sonarMeasure()
 }
 
 //Fill time, temp, and measurement arrays
-void fillArrays()
+void fillArrays(String *times, int *distances, double *temps)
 {
   //Turn on Maxbotix
   digitalWrite(SONAR_ENABLE_PIN, HIGH);
-  stringComplete = false;
 
   //Fill measurement and timestamp lists
   for (int i = 0; i < LIST_SIZE; i++)
   {
-    readList[i] = sonarMeasure();
+    distances[i] = sonarMeasure();
 
     updateTime(now());
-    timeList[i] = unixTime;
+    times[i] = unixTime;
 
     temp = myClock.temperature();
     temp *= 9.0;
     temp /= 20.0;
     temp += 32.0;
-    tempList[i] = temp;
+    temps[i] = temp;
 
     //Print timestamps and measurement as they are taken
-    Serial.print(timeList[i]);
+    Serial.print(times[i]);
     Serial.print(" ");
-    Serial.print(readList[i]);
+    Serial.print(distances[i]);
     Serial.print(" ");
-    Serial.println(tempList[i]);
+    Serial.println(temps[i]);
 
 
   }
@@ -185,7 +183,7 @@ void fillArrays()
 }
 
 //Write the list to the sd card
-void sdWrite()
+void sdWrite(String *times, int *distances, double *temps)
 {
   //Create string for new file name
   String fileName = "/Data/";
@@ -205,9 +203,9 @@ void sdWrite()
   for (int i = 0; i < LIST_SIZE; i++)
   {
     //Create strings for measurement, time, and temp
-    String measurement = String(readList[i]);
-    String currentTime = String(timeList[i]);
-    String currentTemp = String(tempList[i]);
+    String measurement = String(distances[i]);
+    String currentTime = String(times[i]);
+    String currentTemp = String(temps[i]);
 
     //Write time, measurement, and temp on one line in file
     dataFile.print(currentTime);
@@ -326,7 +324,6 @@ void setup()
   setSyncProvider(myClock.get); //Set the external RTC as the time keeper
 
   //Print start time info
-  startMillis = millis();
   Serial.println();
   Serial.print("Starting: ");
   updateTime(now());
@@ -339,14 +336,18 @@ void setup()
 
 void loop()
 {
+  int distList[LIST_SIZE];
+  String timeList[LIST_SIZE];
+  double tempList[LIST_SIZE];
+
   //Fill the reading, time, and temp arrays
   Serial.print("Filling Arrays: ");
   updateTime(now());
   Serial.println(displayTime);
-  fillArrays(); //Tuns on LED if taking good measurements
+  fillArrays(timeList, distList, tempList); //Tuns on LED if taking good measurements
 
   //Write to SD card and serial monitor
-  sdWrite();
+  sdWrite(timeList, distList, tempList);
   digitalWrite(LED_BUILTIN, LOW); //Turns off LED before going to sleep
 
   //Prepare deep sleep
@@ -357,7 +358,7 @@ void loop()
   gpio_deep_sleep_hold_en();
 
   //Print sleep time info
-  Serial.print("Sleep: ");
+  Serial.print("Sleep: ");\
   updateTime(now());
   Serial.println(displayTime);
   Serial.print("Sleep until: ");
