@@ -29,7 +29,9 @@
    Green - Vcc
    ---------------------
 */
-
+//C/C++ standard library
+#include <string.h>
+// Arduino/ESP32 header
 #include <Wire.h>
 #include <SPI.h>
 #include <SD.h>
@@ -57,6 +59,8 @@
 //const int LED = 25; //LED pin
 #define LED_BUILTIN GPIO_NUM_25 //i don't think this exists on this board
 
+#define FORMAT_BUF_SIZE 100
+
 const u_long startMillis = millis();
 
 //For sleep
@@ -70,11 +74,6 @@ DS3232RTC myClock(false); //For non AVR boards (ESP32)
 
 String unixTime;
 String displayTime;
-
-//For temp measurements
-double temp;
-
-
 
 //-----------------------------------------------------------------------------------
 //Get a reading from the sonar
@@ -158,7 +157,6 @@ void fillArrays(String *times, int *distances, double *temps)
   for (int i = 0; i < LIST_SIZE; i++)
   {
     distances[i] = sonarMeasure();
-
     updateTime(now());
     times[i] = unixTime;
     temps[i] = myClock.temperature() * 9.0 / 20.0 + 32.0;
@@ -169,8 +167,6 @@ void fillArrays(String *times, int *distances, double *temps)
     Serial.print(distances[i]);
     Serial.print(" ");
     Serial.println(temps[i]);
-
-
   }
 
   //Turn off Maxbotix
@@ -241,45 +237,13 @@ void sdBegin()
 //Add millisieconds to time
 void updateTime(time_t t)
 {
-  unsigned long myMillis = (millis() - startMillis) % 1000;
+  char buf[FORMAT_BUF_SIZE];
+  unsigned long current_millis = (millis() - startMillis) % 1000;
 
-  unixTime = String(t);
-  unixTime += ".";
-
-  displayTime = String(hour(t));
-  displayTime += ":";
-  displayTime += String(minute(t));
-  displayTime += ":";
-  displayTime += String(second(t));
-  displayTime += ".";
-
-  if (myMillis < 10) //0-9
-  {
-    unixTime += "00";
-    unixTime += String(myMillis);
-
-    displayTime += "00";
-    displayTime += String(myMillis);
-  }
-
-  else
-  {
-    if (myMillis < 100) //10-99
-    {
-      unixTime += "0";
-      unixTime += String(myMillis);
-
-      displayTime += "0";
-      displayTime += String(myMillis);
-    }
-
-    else //100-999
-    {
-      unixTime += String(myMillis);
-
-      displayTime += String(myMillis);
-    }
-  }
+  sprintf(buf, "%d.%03d", t, current_millis);
+  unixTime = String(buf);
+  sprintf(buf, "%d:%d:%d.%03d", hour(t), minute(t), second(t), current_millis);
+  displayTime = String(buf);
 }
 
 //Update Sleep Time
