@@ -1,5 +1,7 @@
-//Summer 2021 Internship
-//LevelSensorLite_v1
+/*
+ *Summer 2021 Internship
+ *LevelSensorLite_v1
+ */
 
 /* ---------------------
    For SD card:
@@ -46,14 +48,14 @@
 /*
  *PIN DEFINES
  */
-#define BUTTON_PIN 13 //Button pin
-#define SD_CS 5 //SD card chip select pin
-#define SONAR_RX2 16 // Sonar sensor revice pin
-#define SONAR_TX2 17 // Sonar sensor transmit pin
-#define SONAR_ENABLE_PIN 33 //Sonar measurements are disabled when this pin is pulled low
+#define BUTTON_PIN GPIO_NUM_13 //Button pin
+#define SD_CS GPIO_NUM_5 //SD card chip select pin
+#define SONAR_RX2 GPIO_NUM_16 // Sonar sensor receive pin
+#define SONAR_TX2 GPIO_NUM_17 // Sonar sensor transmit pin
+#define SONAR_ENABLE_PIN GPIO_NUM_33 //Sonar measurements are disabled when this pin is pulled low
 
 //const int LED = 25; //LED pin
-#define LED_BUILTIN 25 //i don't think this exists on this board
+#define LED_BUILTIN GPIO_NUM_25 //i don't think this exists on this board
 
 //For sleep
 long SLEEP_TIME;
@@ -307,7 +309,7 @@ void setup()
   //9600 bps for Maxbotix
   Serial.begin(9600);
   Serial2.begin(9600, SERIAL_8N1, SONAR_RX2, SONAR_TX2);
-  gpio_hold_dis(GPIO_NUM_33);
+  gpio_hold_dis(SONAR_ENABLE_PIN);
   pinMode(SONAR_ENABLE_PIN, OUTPUT);
   digitalWrite(SONAR_ENABLE_PIN, LOW); //Hold low to prevent measurements
 
