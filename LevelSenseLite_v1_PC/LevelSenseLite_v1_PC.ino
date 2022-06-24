@@ -247,17 +247,13 @@ void updateTime(time_t t)
 }
 
 //Update Sleep Time
-void updateSleep()
+long updateSleep()
 {
   //Update the current minute (0-59) and convert to seconds
   int nowTime = 60*minute(now()) + second(now());
 
-
-  //Calculate sleep time based on interval
-  SLEEP_TIME = READ_INTERVAL - (nowTime % READ_INTERVAL);
-
-  //Offset for half the reading time
-  SLEEP_TIME -= (READ_TIME / 2);
+  //Calculate sleep time based on interval and offset for half the reading time
+  return READ_INTERVAL - (nowTime % READ_INTERVAL) - (READ_TIME / 2);
 }
 
 //-----------------------------------------------------------------------------------
