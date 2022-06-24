@@ -1,0 +1,370 @@
+//Summer 2021 Internship
+//LevelSensorLite_v1
+
+/* ---------------------
+   For SD card:
+   MOSI (DI) - 23
+   MISO (DO) - 19
+   CLK - 18
+   SD_CS - 5
+   ---------------------
+   For RTC:
+   SDA - 21
+   SCL - 22
+   5.01kOhm - 21 - Vcc
+   5.01kOhm - 22 - Vcc
+   ---------------------
+   For Maxbotix
+   Tx (5) - Rx2 (16)
+   Start/Stop (4) - 33
+   10kOhm - 33 - GND
+   ---------------------
+   For button:
+   Blue (Button) - 13
+   10kOhm - 13 - GND
+   Red (Light) - 25
+   Black - GND
+   Green - Vcc
+   ---------------------
+*/
+
+#include <Wire.h>
+#include <SPI.h>
+#include <SD.h>
+#include <DS3232RTC.h>
+
+/*
+ *MEASUREMENT CONSTANTS
+ */
+#define READ_TIME 5*60 //Length of time to measure (in seconds)
+#define READ_INTERVAL 15*60 //Measurement scheme (in seconds)
+#define EFF_HZ 5.64 //MB 7388 (10 meter sensor)
+//#define EFF_HZ 6.766 //MB 7388 (5 meter sensor)
+#define LIST_SIZE (uint32_t)(EFF_HZ*READ_TIME)
+#define secs_to_microsecs(__seconds) (__seconds * 1000000)
+
+/*
+ *PIN DEFINES
+ */
+#define BUTTON_PIN 13 //Button pin
+#define SD_CS 5 //SD card chip select pin
+#define SONAR_RX2 16 // Sonar sensor revice pin
+#define SONAR_TX2 17 // Sonar sensor transmit pin
+#define SONAR_ENABLE_PIN 33 //Sonar measurements are disabled when this pin is pulled low
+
+//const int LED = 25; //LED pin
+#define LED_BUILTIN 25 //i don't think this exists on this board
+
+//For sleep
+long SLEEP_TIME;
+
+//For sonar measurements
+int sonarDist;
+int readList[LIST_SIZE];
+boolean stringComplete = false;
+
+//Clock variables
+DS3232RTC myClock(false); //For non AVR boards (ESP32)
+String timeList[LIST_SIZE];
+unsigned long startMillis;
+String unixTime;
+String displayTime;
+
+//For temp measurements
+double temp;
+double tempList[LIST_SIZE];
+
+
+
+//-----------------------------------------------------------------------------------
+//Get a reading from the sonar
+int sonarMeasure()
+{
+  int result;
+  char inData[4]; //char array to read data into
+  int index = 0;
+
+  // Clear cache ready for next reading
+  Serial2.flush();
+
+  //Try until it gets an actual reading
+  while (stringComplete == false)
+  {
+    //If sensor has data available
+    if (Serial2.available())
+    {
+      //Read serial input
+      char rByte = Serial2.read();
+
+      //If the first character is an "R"
+      if (rByte == 'R') //Maxbotix reports "Rxxxx", where xxxx is a 4 digit mm distance
+      {
+        //Read next four characters (range)
+        while (index <= 4)
+        {
+          //If there is a number, place it in array
+          if (Serial2.available())
+          {
+            inData[index] = Serial2.read();
+            index++;
+          }
+        }
+
+        //add a padding byte at end for atoi() function
+        inData[index] = 0x00;
+      }
+
+      //"R" is not the first character
+      else
+      {
+        //Clear the serial channel for next reading
+        Serial2.flush();
+      }
+
+      //Reset before next reading
+      rByte = 0;
+      index = 0;
+      stringComplete = true;
+
+      //Changes string data into an integer for use
+      result = atoi(inData);
+
+      //Turn on LED if measuring properly
+      //Maxbotix reports 300 if object is too close
+      //or you'll get 0 if wired improperly
+      if ((result > 500) and (result < 9999))
+      {
+        digitalWrite(LED_BUILTIN, HIGH);
+      }
+      else digitalWrite(LED_BUILTIN, LOW);
+
+    }
+  }
+
+  //Reset for next reading
+  stringComplete = false;
+
+  return result;
+}
+
+//Fill time, temp, and measurement arrays
+void fillArrays()
+{
+  //Turn on Maxbotix
+  digitalWrite(SONAR_ENABLE_PIN, HIGH);
+  stringComplete = false;
+
+  //Fill measurement and timestamp lists
+  for (int i = 0; i < LIST_SIZE; i++)
+  {
+    readList[i] = sonarMeasure();
+
+    updateTime(now());
+    timeList[i] = unixTime;
+
+    temp = myClock.temperature();
+    temp *= 9.0;
+    temp /= 20.0;
+    temp += 32.0;
+    tempList[i] = temp;
+
+    //Print timestamps and measurement as they are taken
+    Serial.print(timeList[i]);
+    Serial.print(" ");
+    Serial.print(readList[i]);
+    Serial.print(" ");
+    Serial.println(tempList[i]);
+
+
+  }
+
+  //Turn off Maxbotix
+  digitalWrite(SONAR_ENABLE_PIN, LOW);
+}
+
+//Write the list to the sd card
+void sdWrite()
+{
+  //Create string for new file name
+  String fileName = "/Data/";
+  fileName += String(now(), HEX);
+  fileName += ".txt";
+
+  //Create and open a file
+  File dataFile = SD.open(fileName, FILE_WRITE);
+
+  Serial.print("Writing ");
+  Serial.print(fileName);
+  Serial.print(": ");
+  updateTime(now());
+  Serial.println(displayTime);
+
+  //Iterate over entire list
+  for (int i = 0; i < LIST_SIZE; i++)
+  {
+    //Create strings for measurement, time, and temp
+    String measurement = String(readList[i]);
+    String currentTime = String(timeList[i]);
+    String currentTemp = String(tempList[i]);
+
+    //Write time, measurement, and temp on one line in file
+    dataFile.print(currentTime);
+    dataFile.print(",");
+    dataFile.print(measurement);
+    dataFile.print(",");
+    dataFile.println(currentTemp);
+
+  }
+
+  //Close file
+  dataFile.close();
+}
+
+//Check or create header file
+void sdBegin()
+{
+  //Check if file exists and create one if not
+  if (!SD.exists("/begin.txt"))
+  {
+    Serial.println("Creating lead file");
+
+    File dataFile = SD.open("/begin.txt", FILE_WRITE);
+
+    SD.mkdir("/Data");
+
+    //Create header with title, timestamp, and column names
+    dataFile.println("Cal Poly Tide Sensor");
+    dataFile.print("Starting: ");
+    updateTime(now());
+    dataFile.println(unixTime);
+    dataFile.println();
+    dataFile.println("UNIX Time, Distance (mm), Temp (F)");
+    dataFile.close();
+  }
+}
+
+//Add millisieconds to time
+void updateTime(time_t t)
+{
+  unsigned long myMillis = (millis() - startMillis) % 1000;
+
+  unixTime = String(t);
+  unixTime += ".";
+
+  displayTime = String(hour(t));
+  displayTime += ":";
+  displayTime += String(minute(t));
+  displayTime += ":";
+  displayTime += String(second(t));
+  displayTime += ".";
+
+  if (myMillis < 10) //0-9
+  {
+    unixTime += "00";
+    unixTime += String(myMillis);
+
+    displayTime += "00";
+    displayTime += String(myMillis);
+  }
+
+  else
+  {
+    if (myMillis < 100) //10-99
+    {
+      unixTime += "0";
+      unixTime += String(myMillis);
+
+      displayTime += "0";
+      displayTime += String(myMillis);
+    }
+
+    else //100-999
+    {
+      unixTime += String(myMillis);
+
+      displayTime += String(myMillis);
+    }
+  }
+}
+
+//Update Sleep Time
+void updateSleep()
+{
+  //Update the current minute (0-59) and convert to seconds
+  int nowTime = 60*minute(now()) + second(now());
+
+
+  //Calculate sleep time based on interval
+  SLEEP_TIME = READ_INTERVAL - (nowTime % READ_INTERVAL);
+
+  //Offset for half the reading time
+  SLEEP_TIME -= (READ_TIME / 2);
+}
+
+//-----------------------------------------------------------------------------------
+void setup()
+{
+  //9600 bps for Maxbotix
+  Serial.begin(9600);
+  Serial2.begin(9600, SERIAL_8N1, SONAR_RX2, SONAR_TX2);
+  gpio_hold_dis(GPIO_NUM_33);
+  pinMode(SONAR_ENABLE_PIN, OUTPUT);
+  digitalWrite(SONAR_ENABLE_PIN, LOW); //Hold low to prevent measurements
+
+  //Setup for button
+  pinMode(LED_BUILTIN, OUTPUT);
+  pinMode(BUTTON_PIN, INPUT); //Use external 10k pulldown resistor
+
+  //Setup for SD card
+  pinMode(SD_CS, OUTPUT);
+  SD.begin(SD_CS);
+
+  //Setup for clock
+  myClock.begin(); //Initializes I2C bus for non AVR boards
+  setSyncProvider(myClock.get); //Set the external RTC as the time keeper
+
+  //Print start time info
+  startMillis = millis();
+  Serial.println();
+  Serial.print("Starting: ");
+  updateTime(now());
+  Serial.println(displayTime);
+
+  //Check for SD header file
+  sdBegin();
+
+}
+
+void loop()
+{
+  //Fill the reading, time, and temp arrays
+  Serial.print("Filling Arrays: ");
+  updateTime(now());
+  Serial.println(displayTime);
+  fillArrays(); //Tuns on LED if taking good measurements
+
+  //Write to SD card and serial monitor
+  sdWrite();
+  digitalWrite(LED_BUILTIN, LOW); //Turns off LED before going to sleep
+
+  //Prepare deep sleep
+  updateSleep(); //Set sleep time
+  esp_sleep_enable_timer_wakeup(secs_to_microsecs(SLEEP_TIME));
+  esp_sleep_enable_ext0_wakeup(GPIO_NUM_13, 1);
+  gpio_hold_en(GPIO_NUM_33); //Make sure Maxbotix is off
+  gpio_deep_sleep_hold_en();
+
+  //Print sleep time info
+  Serial.print("Sleep: ");
+  updateTime(now());
+  Serial.println(displayTime);
+  Serial.print("Sleep until: ");
+  updateTime(now() + SLEEP_TIME);
+  Serial.print(displayTime);
+
+  //Go to sleep
+  Serial.flush();
+  esp_deep_sleep_start();
+  //Sleeps until woken, runs setup() again
+
+}
