@@ -57,7 +57,8 @@
 #define SONAR_ENABLE_PIN GPIO_NUM_33 //Sonar measurements are disabled when this pin is pulled low
 
 //const int LED = 25; //LED pin
-#define LED_BUILTIN GPIO_NUM_25 //i don't think this exists on this board
+//I'm not sure an LED exists on this board
+#define LED_BUILTIN GPIO_NUM_25
 
 #define FORMAT_BUF_SIZE 100
 
@@ -66,7 +67,7 @@ const u_long startMillis = millis();
 //Clock variables
 DS3232RTC myClock(false); //For non AVR boards (ESP32)
 
-// represents the current time formatted for display and the unix time
+// represents the current time formatted for display and as unix time
 // display: hrs:min:sec.millis
 // unix: unix_sec.millis
 struct FormattedTimes {
