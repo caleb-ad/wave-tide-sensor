@@ -66,8 +66,10 @@ const u_long startMillis = millis();
 //Clock variables
 DS3232RTC myClock(false); //For non AVR boards (ESP32)
 
-String unixTime;
-String displayTime;
+struct FormattedTimes {
+  String unix;
+  String display;
+};
 
 //-----------------------------------------------------------------------------------
 //Get a reading from the sonar
@@ -151,8 +153,7 @@ void fillArrays(String *times, int *distances, double *temps)
   for (int i = 0; i < LIST_SIZE; i++)
   {
     distances[i] = sonarMeasure();
-    updateTime(now());
-    times[i] = unixTime;
+    times[i] = get_unix_display_time(now()).unix;
     temps[i] = myClock.temperature() * 9.0 / 20.0 + 32.0;
 
     //Print timestamps and measurement as they are taken
@@ -181,8 +182,7 @@ void sdWrite(String *times, int *distances, double *temps)
   Serial.print("Writing ");
   Serial.print(fileName);
   Serial.print(": ");
-  updateTime(now());
-  Serial.println(displayTime);
+  Serial.println(get_unix_display_time(now()).display);
 
   //Iterate over entire list
   for (int i = 0; i < LIST_SIZE; i++)
@@ -220,24 +220,28 @@ void sdBegin()
     //Create header with title, timestamp, and column names
     dataFile.println("Cal Poly Tide Sensor");
     dataFile.print("Starting: ");
-    updateTime(now());
-    dataFile.println(unixTime);
+    dataFile.println(get_unix_display_time(now()).display);
     dataFile.println();
     dataFile.println("UNIX Time, Distance (mm), Temp (F)");
     dataFile.close();
   }
 }
 
-//Add millisieconds to time
-void updateTime(time_t t)
+//updates given strings to represent the current time formatted for display and the unix time
+//NULL may safely be given as either pointer
+FormattedTimes get_unix_display_time(time_t current_t)
 {
   char buf[FORMAT_BUF_SIZE];
+  FormattedTimes ft;
   unsigned long current_millis = (millis() - startMillis) % 1000;
 
-  sprintf(buf, "%d.%03d", t, current_millis);
-  unixTime = String(buf);
-  sprintf(buf, "%d:%d:%d.%03d", hour(t), minute(t), second(t), current_millis);
-  displayTime = String(buf);
+  sprintf(buf, "%d.%03d", current_t, current_millis);
+  ft.unix = String(buf);
+
+  sprintf(buf, "%d:%d:%d.%03d", hour(current_t), minute(current_t), second(current_t), current_millis);
+  ft.display = String(buf);
+
+  return ft;
 }
 
 //returns the time to sleep in seconds
@@ -275,8 +279,7 @@ void setup()
   //Print start time info
   Serial.println();
   Serial.print("Starting: ");
-  updateTime(now());
-  Serial.println(displayTime);
+  Serial.println(get_unix_display_time(now()).display);
 
   //Check for SD header file
   sdBegin();
@@ -288,11 +291,11 @@ void loop()
   int distList[LIST_SIZE];
   String timeList[LIST_SIZE];
   double tempList[LIST_SIZE];
+  // FormattedTimes FT;
 
   //Fill the reading, time, and temp arrays
   Serial.print("Filling Arrays: ");
-  updateTime(now());
-  Serial.println(displayTime);
+  Serial.println(get_unix_display_time(now()).display);
   fillArrays(timeList, distList, tempList); //Tuns on LED if taking good measurements
 
   //Write to SD card and serial monitor
@@ -307,16 +310,13 @@ void loop()
   gpio_deep_sleep_hold_en();
 
   //Print sleep time info
-  Serial.print("Sleep: ");\
-  updateTime(now());
-  Serial.println(displayTime);
+  Serial.print("Sleep: ");
+  Serial.println(get_unix_display_time(now()).display);
   Serial.print("Sleep until: ");
-  updateTime(now() + sleep_time);
-  Serial.print(displayTime);
+  Serial.print(get_unix_display_time(now() + sleep_time).display);
 
   //Go to sleep
   Serial.flush();
   esp_deep_sleep_start();
   //Sleeps until woken, runs setup() again
-
 }
