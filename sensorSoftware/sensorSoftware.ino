@@ -398,6 +398,7 @@ void sdWrite()
 
   //Create and open a file
   File dataFile = SD.open(fileName, FILE_WRITE);
+  if(!dataFile) return;
   Serial.printf("Writing %s: ", fileName.c_str());
 
   dataFile.printf("%d, %d, %d", myLong, myLat, myAlt);
@@ -425,6 +426,7 @@ void sdWrite()
 }
 
 //Check or create header file
+//TODO use printf to simplify
 void sdBegin()
 {
   //Check if file exists and create one if not
@@ -483,16 +485,9 @@ void updateLog(String message)
   myMessage += ": ";
   myMessage += message;
 
-//  if (!SD.exists("/logFile.txt"))
-//  {
-//    //Open log file and write to it
-//    File logFile = SD.open("/logFile.txt", FILE_WRITE);
-//    logFile.println(myMessage);
-//    logFile.close();
-//  }
-
   //Open log file and write to it
   File logFile = SD.open("/logFile.txt", FILE_WRITE);
+  if(!logFile) return;
   //logFile.seek(logFile.size());
   logFile.println(myMessage);
   logFile.close();
