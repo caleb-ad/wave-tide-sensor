@@ -36,7 +36,7 @@
 #include <SD.h>
 #include "Adafruit_SHT31.h"
 #include "Adafruit_GPS.h"
-#include "UnixTime.h"
+#include "unixTime().h"
 
 
 
@@ -89,9 +89,7 @@ String timeList[LIST_SIZE];
 unsigned int myMillis;
 unsigned int lastMillis;
 String lastTime;
-String unixTime;
-String displayTime;
-UnixTime stamp(3);
+unixTime() stamp(3);
 Adafruit_GPS GPS(&Serial2);
 
 //For temp measurements
@@ -159,7 +157,7 @@ void setup()
   Serial.println();
   Serial.print("Starting: ");
   updateTime();
-  Serial.println(displayTime);
+  Serial.println(displayTime());
 }
 
 void loop()
@@ -170,7 +168,7 @@ void loop()
   //Fill the reading, time, and temp arrays
   Serial.print("Filling Arrays: ");
   updateTime();
-  Serial.println(displayTime);
+  Serial.println(displayTime());
 
   //Get location data
   myLong = GPS.longitude;
@@ -194,7 +192,7 @@ void loop()
   //Print sleep time info
   Serial.print("Sleep: ");
   updateTime();
-  Serial.println(displayTime);
+  Serial.println(displayTime());
   String message = "Sleep for: ";
   message += String(SLEEP_TIME);
   message += " seconds";
@@ -269,7 +267,7 @@ uint32_t getTime()
 
 String displayTime() {
   char buf[FORMAT_BUF_SIZE];
-  uint32_t current_t = getTime();
+  getTime();
   sprintf(buf, "%d:%d:%d.%03d", GMT_to_PST(GPS.hour), GPS.minute, GPS.seconds, GPS.milliseconds);
   return String(buf);
 }
@@ -369,34 +367,19 @@ void fillArrays()
   for (int i = 0; i < LIST_SIZE; i++)
   {
     readList[i] = sonarMeasure();
-
-    updateTime();
-    timeList[i] = unixTime;
-
-    tempExt = tempSensor.readTemperature();
-    tempExt *= 9.0;
-    tempExt /= 5.0;
-    tempExt += 32.0;
-    tempExtList[i] = tempExt;
-
-    humExt = tempSensor.readHumidity();
-    humExtList[i] = humExt;
+    timeList[i] = unixTime();
+    tempExtList[i] =  celsius_to_fahrenheit(tempSensor.readTemperature());
+    humExtList[i] = tempSensor.readHumidity();
 
     //Print timestamps and measurement as they are taken
-    Serial.print(timeList[i]);
-    Serial.print(" ");
-    Serial.print(readList[i]);
-    Serial.print("  ");
-    Serial.print(tempExtList[i]);
-    Serial.print("  ");
-    Serial.print(humExtList[i]);
-    Serial.print("  ");
-    Serial.print(myLat);
-    Serial.print("  ");
-    Serial.print(myLong);
-    Serial.print("  ");
-    Serial.println(myAlt);
-
+    Serial.printf("%d  %d  %d  %d  %d  %d  %d\n",
+        timeList[i],
+        readList[i],
+        tempExtList[i],
+        humExtList[i],
+        myLat,
+        myLong,
+        myAlt);
   }
 
   //Turn off Maxbotix
@@ -415,12 +398,9 @@ void sdWrite()
 
   //Create and open a file
   File dataFile = SD.open(fileName, FILE_WRITE);
+  Serial.printf("Writing %s: ", fileName.c_str());
 
-  Serial.print("Writing ");
-  Serial.print(fileName);
-  Serial.print(": ");
-  updateTime();
-  Serial.println(displayTime);
+  dataFile.printf("%d, %d, %d", myLong, myLat, myAlt);
 
   //Iterate over entire list
   for (int i = 0; i < LIST_SIZE; i++)
@@ -433,40 +413,11 @@ void sdWrite()
       return;
     }
 
-    //Create strings for measurement, time, and temp
-    String measurement = String(readList[i]);
-    String currentTime = String(timeList[i]);
-    String currentExtTemp = String(tempExtList[i]);
-    String currentHum = String(humExtList[i]);
-    String currentLong = String(myLong);
-    String currentLat = String(myLat);
-    String currentAlt = String(myAlt);
-
-    //Write time, measurement, and temp on one line in file
-    dataFile.print(currentTime);
-    dataFile.print(",");
-    dataFile.print(measurement);
-    dataFile.print(",");
-    dataFile.print(currentExtTemp);
-    dataFile.print(",");
-
-    //Only write location info the first time through
-    if (i == 0)
-    {
-      dataFile.print(currentHum);
-      dataFile.print(",");
-      dataFile.print(currentLat);
-      dataFile.print(",");
-      dataFile.print(currentLong);
-      dataFile.print(",");
-      dataFile.println(currentAlt);
-    }
-
-    else
-    {
-      dataFile.println(currentHum);
-    }
-
+    dataFile.printf("%d, %d, %d, %d\n",
+        timeList[i],
+        readList[i],
+        tempExtList[i],
+        humExtList[i]);
   }
 
   //Close file
@@ -487,7 +438,7 @@ void sdBegin()
     dataFile.println("Cal Poly Tide Sensor");
     dataFile.print("Starting: ");
     updateTime();
-    dataFile.println(unixTime);
+    dataFile.println(unixTime());
     dataFile.println();
     dataFile.println("UNIX Time, Distance (mm), Internal Temp (F), External Temp (F), Humidity (%), Latitude, Longitude, Altitude");
     dataFile.close();
@@ -528,7 +479,7 @@ void updateLog(String message)
   updateTime();
 
   //Create message
-  String myMessage = String(unixTime);
+  String myMessage = String(unixTime());
   myMessage += ": ";
   myMessage += message;
 
