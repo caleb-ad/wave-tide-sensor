@@ -30,18 +30,18 @@
    Green - 21
    ---------------------
 */
-
 #include <Wire.h>
 #include <SPI.h>
 #include <SD.h>
+#include <driver\timer.h>
 #include "Adafruit_SHT31.h"
 #include "Adafruit_GPS.h"
-#include "unixTime.h"
+#include "UnixTime.h"
 
 
-
-#define READ_TIME 5*60 //Length of time to measure (in seconds)
-#define READ_INTERVAL 15*60 //Measurement scheme (in seconds)
+//! Changed for debugging
+#define READ_TIME 1 //Length of time to measure (in seconds)
+#define READ_INTERVAL 5 //Measurement scheme (in seconds)
 #define EFF_HZ 5.64 //MB 7388 (10 meter sensor)
 //#define EFF_HZ 6.766 //MB 7388 (5 meter sensor)
 #define LIST_SIZE (uint32_t)(EFF_HZ*READ_TIME)
@@ -57,7 +57,7 @@
 #define SONAR_TX GPIO_NUM_32 // Sonar sensor transmit pin
 #define SONAR_EN GPIO_NUM_33 //Sonar measurements are disabled when this pin is pulled low
 
-#define LED_BUILTIN GPIO_NUM_2
+// #define LED_BUILTIN GPIO_NUM_2
 
 #define GPS_MIN_TIME 100
 #define GPS_RX GPIO_NUM_16
@@ -184,12 +184,12 @@ void loop()
 
     //Measure
     updateLog("Filling arrays");
-    fillArrays(readList, timeList, tempExtList, humExtList); //Tuns on LED if taking good measurements
+    fillArrays(&data); //Tuns on LED if taking good measurements
 
     //Write to SD card and serial monitor
     updateLog("Done filling arrays");
     updateLog("Writing to SD card");
-    sdWrite(readList, timeList, tempExtList, humExtList, myLong, myLat, myAlt);
+    sdWrite(&data);
 
     //Prepare deep sleep
     digitalWrite(LED_PIN, LOW);

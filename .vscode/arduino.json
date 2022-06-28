@@ -4,5 +4,5 @@
     "sketch": "sensorSoftware\\sensorSoftware.ino",
     "programmer": "esp32:esptool",
     "output": "output",
-    "port": "COM3"
+    "port": "COM7"
 }
