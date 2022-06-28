@@ -36,7 +36,7 @@
 #include <SD.h>
 #include "Adafruit_SHT31.h"
 #include "Adafruit_GPS.h"
-#include "unixTime().h"
+#include "unixTime.h"
 
 
 
@@ -46,7 +46,7 @@
 //#define EFF_HZ 6.766 //MB 7388 (5 meter sensor)
 #define LIST_SIZE (uint32_t)(EFF_HZ*READ_TIME)
 #define secs_to_microsecs(__seconds) (__seconds * 1000000)
-#define celsius_to_fahrenheit(__celsius) (__celsius * 9 / 5 + 32)
+#define celsius_to_fahrenheit(__celsius) (__celsius * 9.0 / 5.0 + 32.0)
 #define GMT_to_PST(__GMT) ((__GMT + 16) % 24)
 
 #define FORMAT_BUF_SIZE 100
@@ -70,149 +70,155 @@
 
 #define LED_PIN 2
 
+uint32_t internal_millis_start;
+
 //For sleep
 RTC_DATA_ATTR int wakeCounter = -1;
 int SLEEP_TIME;
 
-//For sonar measurements
-int sonarDist;
-int readList[LIST_SIZE];
-boolean stringComplete = false;
-
-//For location measurements
-float myLong;
-float myLat;
-float myAlt;
-
 //Clock variables
-String timeList[LIST_SIZE];
 unsigned int myMillis;
-unsigned int lastMillis;
 String lastTime;
-unixTime() stamp(3);
+UnixTime stamp(3);
 Adafruit_GPS GPS(&Serial2);
 
 //For temp measurements
 Adafruit_SHT31 tempSensor = Adafruit_SHT31();
-double tempExt;
-double tempExtList[LIST_SIZE];
-double humExt;
-double humExtList[LIST_SIZE];
+
+struct sensorData {
+    int *readList;
+    String *timeList;
+    float *tempExtList;
+    float *humExtList;
+    float myLong;
+    float myLat;
+    float myAlt;
+};
 
 //-----------------------------------------------------------------------------------
 void setup()
 {
-  //Setup for SD card
-  pinMode(SD_CS, OUTPUT);
-  SD.begin(SD_CS);
-  updateLog("Waking Up");
-  updateLog("SD enabled");
+    //Setup for SD card
+    pinMode(SD_CS, OUTPUT);
+    SD.begin(SD_CS);
+    updateLog("Waking Up");
+    updateLog("SD enabled");
 
-  //9600 bps for Maxbotix
-  Serial.begin(9600); //Serial monitor
-  Serial1.begin(9600, SERIAL_8N1, SONAR_RX, SONAR_TX); //Maxbotix
-  Serial2.begin(9600, SERIAL_8N1, GPS_RX, GPS_TX); //Clock
-  updateLog("Serial Ports Enabled");
+    //9600 bps for Maxbotix
+    Serial.begin(9600); //Serial monitor
+    Serial1.begin(9600, SERIAL_8N1, SONAR_RX, SONAR_TX); //Maxbotix
+    Serial2.begin(9600, SERIAL_8N1, GPS_RX, GPS_TX); //Clock
+    updateLog("Serial Ports Enabled");
 
-  //Run Setup, check SD file every 1000th wake cycle
-  wakeCounter += 1;
-  Serial.print("Wake Counter: ");
-  Serial.println(wakeCounter);
-  if ((wakeCounter % 1000) == 0)
-  {
+    //Run Setup, check SD file every 1000th wake cycle
+    wakeCounter += 1;
+    Serial.print("Wake Counter: ");
+    Serial.println(wakeCounter);
+    if ((wakeCounter % 1000) == 0)
+    {
     Serial.println("GPS Begin");
     wakeCounter = 0;
 
     startGPS();
     updateLog("GPS enabled");
     sdBegin();
-  }
+    }
 
-  //Turn on relevant pins
-  gpio_hold_dis(GPIO_NUM_15);
-  gpio_hold_dis(GPIO_NUM_33);
-  gpio_hold_dis(GPIO_NUM_27);
-  pinMode(GPS_CLOCK_EN, OUTPUT);
-  pinMode(TEMP_EN, OUTPUT);
-  pinMode(SONAR_EN, OUTPUT);
-  digitalWrite(GPS_CLOCK_EN, HIGH); //Hold clock high
-  digitalWrite(TEMP_EN, HIGH); //Hold high to supply power to temp sensor
-  digitalWrite(SONAR_EN, LOW); //Hold low to prevent measurements
-  updateLog("Start/Stop Enabled");
+    //Turn on relevant pins
+    gpio_hold_dis(GPIO_NUM_15);
+    gpio_hold_dis(GPIO_NUM_33);
+    gpio_hold_dis(GPIO_NUM_27);
+    pinMode(GPS_CLOCK_EN, OUTPUT);
+    pinMode(TEMP_EN, OUTPUT);
+    pinMode(SONAR_EN, OUTPUT);
+    digitalWrite(GPS_CLOCK_EN, HIGH); //Hold clock high
+    digitalWrite(TEMP_EN, HIGH); //Hold high to supply power to temp sensor
+    digitalWrite(SONAR_EN, LOW); //Hold low to prevent measurements
+    updateLog("Start/Stop Enabled");
 
-  //Setup for temp/humidity
-  tempSensor.begin(TEMP_SENSOR_ADDRESS); //Hex Address for new I2C pins
-  updateLog("Temp Sensor Enabled");
+    //Setup for temp/humidity
+    tempSensor.begin(TEMP_SENSOR_ADDRESS); //Hex Address for new I2C pins
+    updateLog("Temp Sensor Enabled");
 
-  //Setup for LED
-  pinMode(LED_PIN, OUTPUT);
-  updateLog("LEDs enabled");
+    //Setup for LED
+    pinMode(LED_PIN, OUTPUT);
+    updateLog("LEDs enabled");
 
-  //Check for SD header file
-  updateLog("Startup concluded");
-  stringComplete = false;
+    //Check for SD header file
+    updateLog("Startup concluded");
 
+    internal_millis_start = millis();
 
-
-  Serial.println();
-  Serial.print("Starting: ");
-  updateTime();
-  Serial.println(displayTime());
+    Serial.println();
+    Serial.print("Starting: ");
+    Serial.println(displayTime());
 }
 
 void loop()
 {
-  //Clear LED
-  digitalWrite(LED_PIN, LOW);
+    uint32_t meas_start_sec = getTime();
+    uint32_t meas_start_milli = GPS.milliseconds;
+    uint32_t internal_start = millis();
+    int readList[LIST_SIZE];
+    String timeList[LIST_SIZE];
+    float tempExtList[LIST_SIZE];
+    float humExtList[LIST_SIZE];
+    sensorData data = {
+        readList,
+        timeList,
+        tempExtList,
+        humExtList,
+        GPS.longitude,
+        GPS.latitude,
+        GPS.altitude,
+    };
 
-  //Fill the reading, time, and temp arrays
-  Serial.print("Filling Arrays: ");
-  updateTime();
-  Serial.println(displayTime());
+    //Clear LED
+    digitalWrite(LED_PIN, LOW);
 
-  //Get location data
-  myLong = GPS.longitude;
-  myLat = GPS.latitude;
-  myAlt = GPS.altitude;
+    //Fill the reading, time, and temp arrays
+    Serial.print("Filling Arrays: ");
+    Serial.println(displayTime());
 
-  //Measure
-  updateLog("Filling arrays");
-  fillArrays(); //Tuns on LED if taking good measurements
+    //Get location data
 
-  //Write to SD card and serial monitor
-  updateLog("Done filling arrays");
-  updateLog("Writing to SD card");
-  sdWrite();
+    //Measure
+    updateLog("Filling arrays");
+    fillArrays(readList, timeList, tempExtList, humExtList); //Tuns on LED if taking good measurements
 
-  //Prepare deep sleep
-  digitalWrite(LED, LOW);
-  updateSleep();
-  esp_sleep_enable_timer_wakeup(SLEEP_TIME * CONVERSION);
+    //Write to SD card and serial monitor
+    updateLog("Done filling arrays");
+    updateLog("Writing to SD card");
+    sdWrite(readList, timeList, tempExtList, humExtList, myLong, myLat, myAlt);
 
-  //Print sleep time info
-  Serial.print("Sleep: ");
-  updateTime();
-  Serial.println(displayTime());
-  String message = "Sleep for: ";
-  message += String(SLEEP_TIME);
-  message += " seconds";
-  Serial.println(message);
-  updateLog(message);
+    //Prepare deep sleep
+    digitalWrite(LED_PIN, LOW);
+    updateSleep();
+    esp_sleep_enable_timer_wakeup(secs_to_microsecs(SLEEP_TIME));
 
-  //Turn everything off
-  digitalWrite(clockEN, LOW);
-  digitalWrite(tempVin, LOW);
-  gpio_hold_en(GPIO_NUM_27); //Make sure clock is off
-  gpio_hold_en(GPIO_NUM_15); //Make sure temp sensor is off
-  esp_sleep_enable_ext0_wakeup(GPIO_NUM_33, 1);
-  gpio_hold_en(GPIO_NUM_33); //Make sure Maxbotix is off
-  gpio_deep_sleep_hold_en();
+    //Print sleep time info
+    Serial.print("Sleep: ");
+    Serial.println(displayTime());
+    String message = "Sleep for: ";
+    message += String(SLEEP_TIME);
+    message += " seconds";
+    Serial.println(message);
+    updateLog(message);
 
-  //Go to sleep
-  Serial.flush();
-  esp_deep_sleep_start();
-  //Sleeps until woken, runs setup() again
+    //Turn everything off
+    digitalWrite(GPS_CLOCK_EN, LOW);
+    digitalWrite(TEMP_EN, LOW);
+    digitalWrite(SONAR_EN, LOW);
+    gpio_hold_en(GPS_CLOCK_EN); //Make sure clock is off
+    gpio_hold_en(TEMP_EN); //Make sure temp sensor is off
+    gpio_hold_en(SONAR_EN); //Make sure Maxbotix is off
+    esp_sleep_enable_ext0_wakeup(SONAR_EN, 1);
+    gpio_deep_sleep_hold_en();
 
+    //Go to sleep
+    Serial.flush();
+    esp_deep_sleep_start();
+    //Sleeps until woken, runs setup() again
 }
 
 //-----------------------------------------------------------------------------------
@@ -244,6 +250,7 @@ uint32_t getTime()
     // Read GPS
     char c = GPS.read();
 
+
     // if a sentence is received, we can check the checksum, parse it...
     if (GPS.newNMEAreceived())
     {
@@ -260,7 +267,7 @@ uint32_t getTime()
   stamp.setDateTime(GPS.year + 2000, GPS.month, GPS.day, GPS.hour, GPS.minute, GPS.seconds);
   uint32_t unix = stamp.getUnix();
 
-  unix += 10800;
+  unix += 10800; // 3 hrs
 
   return unix;
 }
@@ -281,113 +288,62 @@ String unixTime() {
 //Get a reading from the sonar
 int sonarMeasure()
 {
-  int result;
-  char inData[4]; //char array to read data into
-  int index = 0;
-  long start = millis();
+    char inData[5] = {0}; //char array to read data into
+    long start = millis(); //timeout if read takes too long
+    // Clear cache ready for next reading
+    Serial1.flush();
 
-  // Clear cache ready for next reading
-  Serial1.flush();
+    //Wait for device to be ready
+    while (!Serial1.available()){if(millis() - start > 1000) return -1;}
 
-  //Try until it gets an actual reading
-  while (stringComplete == false)
-  {
-    //If it's been trying for too long and can't find anything, return 0
-    if ((millis() - start) > 1000/5)
-    {
-      return 0;
+    //Maxbotix reports "Rxxxx", where xxxx is a 4 digit mm distance
+    while (Serial1.read() != 'R'){}
+    Serial1.readBytes(inData, 4);
+
+    uint result = atoi(inData);
+
+    //Turn on LED if measuring properly
+    //Maxbotix reports 300 if object is too close
+    //or you'll get 0 if wired improperly
+    if ((result > 500) and (result < 9999)) {
+        digitalWrite(LED_BUILTIN, HIGH);
     }
+    else digitalWrite(LED_BUILTIN, LOW);
 
-    //If sensor has data available
-    if (Serial1.available())
-    {
-      //Read serial input
-      char rByte = Serial1.read();
-
-      //If the first character is an "R"
-      if (rByte == 'R') //Maxbotix reports "Rxxxx", where xxxx is a 4 digit mm distance
-      {
-        //Read next four characters (range)
-        while (index <= 4)
-        {
-          //If there is a number, place it in array
-          if (Serial1.available())
-          {
-            inData[index] = Serial1.read();
-            index++;
-          }
-        }
-
-        //add a padding byte at end for atoi() function
-        inData[index] = 0x00;
-      }
-
-      //"R" is not the first character
-      else
-      {
-        //Clear the serial channel for next reading
-        Serial1.flush();
-      }
-
-      //Reset before next reading
-      rByte = 0;
-      index = 0;
-      stringComplete = true;
-
-      //Changes string data into an integer for use
-      result = atoi(inData);
-    }
+    return result;
   }
-
-  //Reset for next reading
-  stringComplete = false;
-
-  //Turn on LED depending on distance
-  if ((result <= 500) or (result >= 9999))
-  {
-    digitalWrite(LED, HIGH);
-  }
-
-  else
-  {
-    digitalWrite(LED, LOW);
-  }
-
-  return result;
-}
 
 //Fill time, temp, and measurement arrays
-void fillArrays()
+void fillArrays(sensorData *data)
 {
   //Turn on Maxbotix
-  digitalWrite(SS_PIN, HIGH);
-  stringComplete = false;
+  digitalWrite(SONAR_EN, HIGH);
 
   //Fill measurement and timestamp lists
   for (int i = 0; i < LIST_SIZE; i++)
   {
-    readList[i] = sonarMeasure();
-    timeList[i] = unixTime();
-    tempExtList[i] =  celsius_to_fahrenheit(tempSensor.readTemperature());
-    humExtList[i] = tempSensor.readHumidity();
+    data->readList[i] = sonarMeasure();
+    data->timeList[i] = unixTime();
+    data->tempExtList[i] =  celsius_to_fahrenheit(tempSensor.readTemperature());
+    data->humExtList[i] = tempSensor.readHumidity();
 
     //Print timestamps and measurement as they are taken
     Serial.printf("%d  %d  %d  %d  %d  %d  %d\n",
-        timeList[i],
-        readList[i],
-        tempExtList[i],
-        humExtList[i],
-        myLat,
-        myLong,
-        myAlt);
+        data->timeList[i],
+        data->readList[i],
+        data->tempExtList[i],
+        data->humExtList[i],
+        data->myLat,
+        data->myLong,
+        data->myAlt);
   }
 
   //Turn off Maxbotix
-  digitalWrite(SS_PIN, LOW);
+  digitalWrite(SONAR_EN, LOW);
 }
 
 //Write the list to the sd card
-void sdWrite()
+void sdWrite(sensorData *data)
 {
   long start = millis();
 
@@ -401,7 +357,7 @@ void sdWrite()
   if(!dataFile) return;
   Serial.printf("Writing %s: ", fileName.c_str());
 
-  dataFile.printf("%d, %d, %d", myLong, myLat, myAlt);
+  dataFile.printf("%d, %d, %d", data->myLong, data->myLat, data->myAlt);
 
   //Iterate over entire list
   for (int i = 0; i < LIST_SIZE; i++)
@@ -415,10 +371,10 @@ void sdWrite()
     }
 
     dataFile.printf("%d, %d, %d, %d\n",
-        timeList[i],
-        readList[i],
-        tempExtList[i],
-        humExtList[i]);
+        data->timeList[i],
+        data->readList[i],
+        data->tempExtList[i],
+        data->humExtList[i]);
   }
 
   //Close file
@@ -439,7 +395,6 @@ void sdBegin()
     //Create header with title, timestamp, and column names
     dataFile.println("Cal Poly Tide Sensor");
     dataFile.print("Starting: ");
-    updateTime();
     dataFile.println(unixTime());
     dataFile.println();
     dataFile.println("UNIX Time, Distance (mm), Internal Temp (F), External Temp (F), Humidity (%), Latitude, Longitude, Altitude");
@@ -477,9 +432,6 @@ void updateSleep()
 
 void updateLog(String message)
 {
-  //Update the time
-  updateTime();
-
   //Create message
   String myMessage = String(unixTime());
   myMessage += ": ";
