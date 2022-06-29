@@ -34,6 +34,7 @@
 #include <SPI.h>
 #include <SD.h>
 #include <driver\timer.h>
+#include <soc\rtc.h>
 #include "Adafruit_SHT31.h"
 #include "Adafruit_GPS.h"
 #include "UnixTime.h"
@@ -70,19 +71,21 @@
 
 #define LED_PIN 2
 
-uint32_t internal_millis_start;
+uint32_t clock_freq;
 
 //For sleep
 RTC_DATA_ATTR int wakeCounter = -1;
 int SLEEP_TIME;
 
 //Clock variables
-unsigned int myMillis;
-String lastTime;
-UnixTime stamp(3);
-Adafruit_GPS GPS(&Serial2);
+// const uint32_t internal_millis_start  = millis();
+// uint32_t GPS_read_millis;
+// unsigned int myMillis;
+// String lastTime;
+// UnixTime stamp(3);
 
-//For temp measurements
+//Objects to manage peripherals
+Adafruit_GPS GPS(&Serial2);
 Adafruit_SHT31 tempSensor = Adafruit_SHT31();
 
 struct sensorData {
@@ -95,9 +98,26 @@ struct sensorData {
     float myAlt;
 };
 
+// every 10ms read from the GPS, when
+bool gps_polling_isr(void* arg) {
+    GPS.read();
+    if (GPS.newNMEAreceived()) {
+        // a tricky thing here is if we print the NMEA sentence, or data
+        // we end up not listening and catching other sentences!
+        // so be very wary if using OUTPUT_ALLDATA and trying to print out data
+        //Serial.println(GPS.lastNMEA());   // this also sets the newNMEAreceived() flag to false
+        GPS.parse(GPS.lastNMEA());  // this also sets the newNMEAreceived() flag to false
+    }
+}
+
 //-----------------------------------------------------------------------------------
 void setup()
 {
+    //get CPU frequency
+    rtc_cpu_freq_config_t CFC;
+    rtc_clk_cpu_freq_get_config(&CFC);
+    clock_freq = CFC.freq_mhz;
+
     //Setup for SD card
     pinMode(SD_CS, OUTPUT);
     SD.begin(SD_CS);
@@ -124,6 +144,17 @@ void setup()
     sdBegin();
     }
 
+    // configure timer for even measurement intervals
+    timer_config_t gps_polling_config;
+    gps_polling_config.alarm_en = timer_alarm_t::TIMER_ALARM_EN;
+    gps_polling_config.auto_reload = timer_autoreload_t::TIMER_AUTORELOAD_EN;
+    gps_polling_config.counter_dir = timer_count_dir_t::TIMER_COUNT_UP;
+    gps_polling_config.divider = 0;
+    timer_init(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, &gps_polling_config);
+    // configure timer to count 10 millis
+    timer_set_counter_value(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, clock_freq / 100);
+    timer_isr_callback_add(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, );
+
     //Turn on relevant pins
     gpio_hold_dis(GPIO_NUM_15);
     gpio_hold_dis(GPIO_NUM_33);
@@ -146,8 +177,6 @@ void setup()
 
     //Check for SD header file
     updateLog("Startup concluded");
-
-    internal_millis_start = millis();
 
     Serial.println();
     Serial.print("Starting: ");
@@ -212,7 +241,7 @@ void loop()
     gpio_hold_en(GPS_CLOCK_EN); //Make sure clock is off
     gpio_hold_en(TEMP_EN); //Make sure temp sensor is off
     gpio_hold_en(SONAR_EN); //Make sure Maxbotix is off
-    esp_sleep_enable_ext0_wakeup(SONAR_EN, 1);
+    esp_sleep_enable_ext0_wakeup(SONAR_EN, 1);//TODO: this line seems unnecesary
     gpio_deep_sleep_hold_en();
 
     //Go to sleep
@@ -242,40 +271,19 @@ void startGPS()
 // Get current unix time
 uint32_t getTime()
 {
-  //Start timer
-  uint32_t timer = millis();
+    static UnixTime stamp(8);
+    stamp.setDateTime(GPS.year + 2000, GPS.month, GPS.day, GPS.hour, GPS.minute, GPS.seconds);
+    uint32_t unix = stamp.getUnix();
 
-  while (millis() - timer <= GPS_MIN_TIME)
-  {
-    // Read GPS
-    char c = GPS.read();
+    // unix += 10800; // 3 hrs
 
-
-    // if a sentence is received, we can check the checksum, parse it...
-    if (GPS.newNMEAreceived())
-    {
-      // a tricky thing here is if we print the NMEA sentence, or data
-      // we end up not listening and catching other sentences!
-      // so be very wary if using OUTPUT_ALLDATA and trytng to print out data
-      //Serial.println(GPS.lastNMEA());   // this also sets the newNMEAreceived() flag to false
-
-      if (!GPS.parse(GPS.lastNMEA()))   // this also sets the newNMEAreceived() flag to false
-        break;  // we can fail to parse a sentence in which case we should just wait for another
-    }
-  }
-
-  stamp.setDateTime(GPS.year + 2000, GPS.month, GPS.day, GPS.hour, GPS.minute, GPS.seconds);
-  uint32_t unix = stamp.getUnix();
-
-  unix += 10800; // 3 hrs
-
-  return unix;
+    return unix;
 }
 
 String displayTime() {
   char buf[FORMAT_BUF_SIZE];
   getTime();
-  sprintf(buf, "%d:%d:%d.%03d", GMT_to_PST(GPS.hour), GPS.minute, GPS.seconds, GPS.milliseconds);
+  sprintf(buf, "%02d:%02d:%02d.%03d", GMT_to_PST(GPS.hour), GPS.minute, GPS.seconds, GPS.milliseconds);
   return String(buf);
 }
 
@@ -385,62 +393,62 @@ void sdWrite(sensorData *data)
 //TODO use printf to simplify
 void sdBegin()
 {
-  //Check if file exists and create one if not
-  if (!SD.exists("/README.txt"))
-  {
-    Serial.println("Creating lead file");
+    //Check if file exists and create one if not
+    if (!SD.exists("/README.txt"))
+    {
+        Serial.println("Creating lead file");
 
-    File dataFile = SD.open("/README.txt", FILE_WRITE);
+        File dataFile = SD.open("/README.txt", FILE_WRITE);
 
-    //Create header with title, timestamp, and column names
-    dataFile.println("Cal Poly Tide Sensor");
-    dataFile.print("Starting: ");
-    dataFile.println(unixTime());
-    dataFile.println();
-    dataFile.println("UNIX Time, Distance (mm), Internal Temp (F), External Temp (F), Humidity (%), Latitude, Longitude, Altitude");
-    dataFile.close();
+        //Create header with title, timestamp, and column names
+        dataFile.println("Cal Poly Tide Sensor");
+        dataFile.print("Starting: ");
+        dataFile.println(unixTime());
+        dataFile.println();
+        dataFile.println("UNIX Time, Distance (mm), Internal Temp (F), External Temp (F), Humidity (%), Latitude, Longitude, Altitude");
+        dataFile.close();
 
-    SD.mkdir("/Data");
-  }
+        SD.mkdir("/Data");
+    }
 }
 
 //Update Sleep Time
 void updateSleep()
 {
-  //Update the current minute (0-59) and convert to seconds
-  int nowTime = 60*GPS.minute + GPS.seconds;
+    //Update the current minute (0-59) and convert to seconds
+    int nowTime = 60*GPS.minute + GPS.seconds;
 
 
-  //Calculate sleep time based on interval
-  SLEEP_TIME = READ_INTERVAL - (nowTime % READ_INTERVAL);
+    //Calculate sleep time based on interval
+    SLEEP_TIME = READ_INTERVAL - (nowTime % READ_INTERVAL);
 
-  //Offset for half the reading time
-  SLEEP_TIME -= (READ_TIME / 2);
+    //Offset for half the reading time
+    SLEEP_TIME -= (READ_TIME / 2);
 
-  //If something went wrong and the sleep time is too high, sleep for the interval
-  if (SLEEP_TIME > READ_INTERVAL)
-  {
-    SLEEP_TIME = READ_INTERVAL;
-  }
+    //If something went wrong and the sleep time is too high, sleep for the interval
+    if (SLEEP_TIME > READ_INTERVAL)
+    {
+        SLEEP_TIME = READ_INTERVAL;
+    }
 
-  if (SLEEP_TIME < 0)
-  {
-    //Actually only sleep for 1 second
-    SLEEP_TIME = 1;
-  }
+    if (SLEEP_TIME < 0)
+    {
+        //Actually only sleep for 1 second
+        SLEEP_TIME = 1;
+    }
 }
 
 void updateLog(String message)
 {
-  //Create message
-  String myMessage = String(unixTime());
-  myMessage += ": ";
-  myMessage += message;
+    //Create message
+    String myMessage = String(unixTime());
+    myMessage += ": ";
+    myMessage += message;
 
-  //Open log file and write to it
-  File logFile = SD.open("/logFile.txt", FILE_WRITE);
-  if(!logFile) return;
-  //logFile.seek(logFile.size());
-  logFile.println(myMessage);
-  logFile.close();
+    //Open log file and write to it
+    File logFile = SD.open("/logFile.txt", FILE_WRITE);
+    if(!logFile) return;
+    //logFile.seek(logFile.size());
+    logFile.println(myMessage);
+    logFile.close();
 }
