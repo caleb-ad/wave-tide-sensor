@@ -112,7 +112,7 @@ bool gps_polling_isr(void* arg) {
     //     GPS.parse(GPS.lastNMEA());  // this also sets the newNMEAreceived() flag to false
     // }
     timer_group_clr_intr_status_in_isr(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0);
-    return true;
+    return false;
 }
 
 //-----------------------------------------------------------------------------------
@@ -155,11 +155,11 @@ void setup()
     gps_polling_config.counter_dir = timer_count_dir_t::TIMER_COUNT_UP;
     gps_polling_config.divider = 2; //should be in [2, 65536]
     timer_init(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, &gps_polling_config);
+    Serial.printf("--------count: %d\n", clock_freq / (2*100));
     timer_set_counter_value(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, clock_freq / (2 * 100)); // configure timer to count 10 millis
     timer_isr_callback_add(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, gps_polling_isr, nullptr, ESP_INTR_FLAG_LOWMED);
-    timer_start(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0);
-    timer_group_intr_enable(timer_group_t::TIMER_GROUP_0, timer_intr_t::TIMER_INTR_T0);
-    Serial.printf("--------count: %d\n", clock_freq / (2*100));
+    // timer_start(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0);
+    // timer_group_intr_enable(timer_group_t::TIMER_GROUP_0, timer_intr_t::TIMER_INTR_T0);
 
     //Turn on relevant pins
     gpio_hold_dis(GPIO_NUM_15);
