@@ -87,6 +87,8 @@ int SLEEP_TIME;
 //Objects to manage peripherals
 Adafruit_GPS GPS(&Serial2);
 Adafruit_SHT31 tempSensor = Adafruit_SHT31();
+bool interupt_flag = false;
+
 
 struct sensorData {
     int *readList;
@@ -100,14 +102,16 @@ struct sensorData {
 
 // every 10ms read from the GPS, when
 bool gps_polling_isr(void* arg) {
-    GPS.read();
-        if (GPS.newNMEAreceived()) {
-        // a tricky thing here is if we print the NMEA sentence, or data
-        // we end up not listening and catching other sentences!
-        // so be very wary if using OUTPUT_ALLDATA and trying to print out data
-        //Serial.println(GPS.lastNMEA());   // this also sets the newNMEAreceived() flag to false
-        GPS.parse(GPS.lastNMEA());  // this also sets the newNMEAreceived() flag to false
-    }
+    interupt_flag = true;
+    // GPS.read();
+    // if (GPS.newNMEAreceived()) {
+    //     // a tricky thing here is if we print the NMEA sentence, or data
+    //     // we end up not listening and catching other sentences!
+    //     // so be very wary if using OUTPUT_ALLDATA and trying to print out data
+    //     //Serial.println(GPS.lastNMEA());   // this also sets the newNMEAreceived() flag to false
+    //     GPS.parse(GPS.lastNMEA());  // this also sets the newNMEAreceived() flag to false
+    // }
+    timer_group_clr_intr_status_in_isr(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0);
     return true;
 }
 
@@ -117,7 +121,7 @@ void setup()
     //get CPU frequency
     rtc_cpu_freq_config_t CFC;
     rtc_clk_cpu_freq_get_config(&CFC);
-    clock_freq = CFC.freq_mhz;
+    clock_freq = CFC.freq_mhz * 1000000;
 
     //Setup for SD card
     pinMode(SD_CS, OUTPUT);
@@ -126,7 +130,7 @@ void setup()
     updateLog("SD enabled");
 
     //9600 bps for Maxbotix
-    Serial.begin(9600); //Serial monitor
+    Serial.begin(115200); //Serial monitor
     Serial1.begin(9600, SERIAL_8N1, SONAR_RX, SONAR_TX); //Maxbotix
     Serial2.begin(9600, SERIAL_8N1, GPS_RX, GPS_TX); //Clock
     updateLog("Serial Ports Enabled");
@@ -135,27 +139,27 @@ void setup()
     wakeCounter += 1;
     Serial.print("Wake Counter: ");
     Serial.println(wakeCounter);
-    if ((wakeCounter % 1000) == 0)
-    {
-    Serial.println("GPS Begin");
-    wakeCounter = 0;
+    if ((wakeCounter % 1000) == 0) {
+        wakeCounter = 0;
+        sdBegin();
+    }
 
+    Serial.println("GPS Begin");
     startGPS();
     updateLog("GPS enabled");
-    sdBegin();
-    }
 
     // configure timer to manage GPS polling
     timer_config_t gps_polling_config;
     gps_polling_config.alarm_en = timer_alarm_t::TIMER_ALARM_EN;
     gps_polling_config.auto_reload = timer_autoreload_t::TIMER_AUTORELOAD_EN;
     gps_polling_config.counter_dir = timer_count_dir_t::TIMER_COUNT_UP;
-    gps_polling_config.divider = 0;
+    gps_polling_config.divider = 2; //should be in [2, 65536]
     timer_init(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, &gps_polling_config);
-    timer_set_counter_value(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, clock_freq / 100); // configure timer to count 10 millis
+    timer_set_counter_value(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, clock_freq / (2 * 100)); // configure timer to count 10 millis
     timer_isr_callback_add(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, gps_polling_isr, nullptr, ESP_INTR_FLAG_LOWMED);
+    timer_start(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0);
     timer_group_intr_enable(timer_group_t::TIMER_GROUP_0, timer_intr_t::TIMER_INTR_T0);
-
+    Serial.printf("--------count: %d\n", clock_freq / (2*100));
 
     //Turn on relevant pins
     gpio_hold_dis(GPIO_NUM_15);
@@ -236,6 +240,10 @@ void loop()
     Serial.println(message);
     updateLog(message);
 
+    if(interupt_flag) {
+        Serial.println("___________INT___________");
+    }
+
     //Turn everything off
     digitalWrite(GPS_CLOCK_EN, LOW);
     digitalWrite(TEMP_EN, LOW);
@@ -243,8 +251,8 @@ void loop()
     gpio_hold_en(GPS_CLOCK_EN); //Make sure clock is off
     gpio_hold_en(TEMP_EN); //Make sure temp sensor is off
     gpio_hold_en(SONAR_EN); //Make sure Maxbotix is off
-    esp_sleep_enable_ext0_wakeup(SONAR_EN, 1);//TODO: this line seems unnecesary
     gpio_deep_sleep_hold_en();
+    esp_sleep_enable_ext0_wakeup(SONAR_EN, 1);//TODO: this line seems unnecesary
 
     //Go to sleep
     Serial.flush();
