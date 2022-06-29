@@ -101,7 +101,7 @@ struct sensorData {
 // every 10ms read from the GPS, when
 bool gps_polling_isr(void* arg) {
     GPS.read();
-    if (GPS.newNMEAreceived()) {
+        if (GPS.newNMEAreceived()) {
         // a tricky thing here is if we print the NMEA sentence, or data
         // we end up not listening and catching other sentences!
         // so be very wary if using OUTPUT_ALLDATA and trying to print out data
@@ -144,16 +144,17 @@ void setup()
     sdBegin();
     }
 
-    // configure timer for even measurement intervals
+    // configure timer to manage GPS polling
     timer_config_t gps_polling_config;
     gps_polling_config.alarm_en = timer_alarm_t::TIMER_ALARM_EN;
     gps_polling_config.auto_reload = timer_autoreload_t::TIMER_AUTORELOAD_EN;
     gps_polling_config.counter_dir = timer_count_dir_t::TIMER_COUNT_UP;
     gps_polling_config.divider = 0;
     timer_init(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, &gps_polling_config);
-    // configure timer to count 10 millis
-    timer_set_counter_value(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, clock_freq / 100);
-    timer_isr_callback_add(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, );
+    timer_set_counter_value(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, clock_freq / 100); // configure timer to count 10 millis
+    timer_isr_callback_add(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, gps_polling_isr, nullptr, ESP_INTR_FLAG_LOWMED);
+    timer_group_intr_enable(timer_group_t::TIMER_GROUP_0, timer_intr_t::TIMER_INTR_T0);
+
 
     //Turn on relevant pins
     gpio_hold_dis(GPIO_NUM_15);
