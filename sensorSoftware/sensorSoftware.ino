@@ -77,17 +77,12 @@ uint32_t clock_freq;
 RTC_DATA_ATTR int wakeCounter = -1;
 int SLEEP_TIME;
 
-//Clock variables
-// const uint32_t internal_millis_start  = millis();
-// uint32_t GPS_read_millis;
-// unsigned int myMillis;
-// String lastTime;
-// UnixTime stamp(3);
+// ISR variables
+bool request_GPS_poll = false;
 
 //Objects to manage peripherals
 Adafruit_GPS GPS(&Serial2);
 Adafruit_SHT31 tempSensor = Adafruit_SHT31();
-bool interupt_flag = false;
 
 
 struct sensorData {
@@ -102,15 +97,7 @@ struct sensorData {
 
 // every 10ms read from the GPS, when
 bool gps_polling_isr(void* arg) {
-    interupt_flag = true;
-    // GPS.read();
-    // if (GPS.newNMEAreceived()) {
-    //     // a tricky thing here is if we print the NMEA sentence, or data
-    //     // we end up not listening and catching other sentences!
-    //     // so be very wary if using OUTPUT_ALLDATA and trying to print out data
-    //     //Serial.println(GPS.lastNMEA());   // this also sets the newNMEAreceived() flag to false
-    //     GPS.parse(GPS.lastNMEA());  // this also sets the newNMEAreceived() flag to false
-    // }
+    request_GPS_poll = true;
     timer_group_clr_intr_status_in_isr(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0);
     return false;
 }
@@ -118,11 +105,6 @@ bool gps_polling_isr(void* arg) {
 //-----------------------------------------------------------------------------------
 void setup()
 {
-    //get CPU frequency
-    rtc_cpu_freq_config_t CFC;
-    rtc_clk_cpu_freq_get_config(&CFC);
-    clock_freq = CFC.freq_mhz * 1000000;
-
     //Setup for SD card
     pinMode(SD_CS, OUTPUT);
     SD.begin(SD_CS);
@@ -154,12 +136,12 @@ void setup()
     gps_polling_config.auto_reload = timer_autoreload_t::TIMER_AUTORELOAD_EN;
     gps_polling_config.counter_dir = timer_count_dir_t::TIMER_COUNT_UP;
     gps_polling_config.divider = 2; //should be in [2, 65536]
+    // gps_polling_config.counter_en = timer_start_t::TIMER_PAUSE;
     timer_init(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, &gps_polling_config);
-    Serial.printf("--------count: %d\n", clock_freq / (2*100));
-    timer_set_counter_value(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, clock_freq / (2 * 100)); // configure timer to count 10 millis
+    timer_set_counter_value(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, rtc_clk_apb_freq_get() / (2 * 100)); // configure timer to count 10 millis
     timer_isr_callback_add(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, gps_polling_isr, nullptr, ESP_INTR_FLAG_LOWMED);
-    // timer_start(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0);
-    // timer_group_intr_enable(timer_group_t::TIMER_GROUP_0, timer_intr_t::TIMER_INTR_T0);
+    timer_enable_intr(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0);
+    timer_start(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0);
 
     //Turn on relevant pins
     gpio_hold_dis(GPIO_NUM_15);
@@ -191,14 +173,12 @@ void setup()
 
 void loop()
 {
-    uint32_t meas_start_sec = getTime();
-    uint32_t meas_start_milli = GPS.milliseconds;
-    uint32_t internal_start = millis();
-    int readList[LIST_SIZE];
-    String timeList[LIST_SIZE];
-    float tempExtList[LIST_SIZE];
-    float humExtList[LIST_SIZE];
-    sensorData data = {
+    static int readList[LIST_SIZE];
+    static String timeList[LIST_SIZE];
+    static float tempExtList[LIST_SIZE];
+    static float humExtList[LIST_SIZE];
+    static uint32_t idx = 0;
+    static sensorData data = {
         readList,
         timeList,
         tempExtList,
@@ -210,54 +190,61 @@ void loop()
 
     //Clear LED
     digitalWrite(LED_PIN, LOW);
+    //Turn on Maxbotix
+    digitalWrite(SONAR_EN, HIGH);
 
-    //Fill the reading, time, and temp arrays
-    Serial.print("Filling Arrays: ");
-    Serial.println(displayTime());
-
-    //Get location data
-
-    //Measure
-    updateLog("Filling arrays");
-    fillArrays(&data); //Tuns on LED if taking good measurements
-
-    //Write to SD card and serial monitor
-    updateLog("Done filling arrays");
-    updateLog("Writing to SD card");
-    sdWrite(&data);
-
-    //Prepare deep sleep
-    digitalWrite(LED_PIN, LOW);
-    updateSleep();
-    esp_sleep_enable_timer_wakeup(secs_to_microsecs(SLEEP_TIME));
-
-    //Print sleep time info
-    Serial.print("Sleep: ");
-    Serial.println(displayTime());
-    String message = "Sleep for: ";
-    message += String(SLEEP_TIME);
-    message += " seconds";
-    Serial.println(message);
-    updateLog(message);
-
-    if(interupt_flag) {
-        Serial.println("___________INT___________");
+    if(request_GPS_poll) {
+        GPS.read();
+        if (GPS.newNMEAreceived()) {
+            // a tricky thing here is if we print the NMEA sentence, or data
+            // we end up not listening and catching other sentences!
+            // so be very wary if using OUTPUT_ALLDATA and trying to print out data
+            //Serial.println(GPS.lastNMEA());   // this also sets the newNMEAreceived() flag to false
+            GPS.parse(GPS.lastNMEA());  // this also sets the newNMEAreceived() flag to false
+        }
     }
+    if(idx < LIST_SIZE) {
+        readData(&data, idx);
+        idx++;
+    }
+    else {
+        //Turn off Maxbotix
+        digitalWrite(SONAR_EN, LOW);
 
-    //Turn everything off
-    digitalWrite(GPS_CLOCK_EN, LOW);
-    digitalWrite(TEMP_EN, LOW);
-    digitalWrite(SONAR_EN, LOW);
-    gpio_hold_en(GPS_CLOCK_EN); //Make sure clock is off
-    gpio_hold_en(TEMP_EN); //Make sure temp sensor is off
-    gpio_hold_en(SONAR_EN); //Make sure Maxbotix is off
-    gpio_deep_sleep_hold_en();
-    esp_sleep_enable_ext0_wakeup(SONAR_EN, 1);//TODO: this line seems unnecesary
+        //Write to SD card and serial monitor
+        updateLog("Done filling arrays");
+        updateLog("Writing to SD card");
+        sdWrite(&data);
 
-    //Go to sleep
-    Serial.flush();
-    esp_deep_sleep_start();
-    //Sleeps until woken, runs setup() again
+        //Prepare deep sleep
+        digitalWrite(LED_PIN, LOW);
+        updateSleep();
+        esp_sleep_enable_timer_wakeup(secs_to_microsecs(SLEEP_TIME));
+
+        //Print sleep time info
+        Serial.print("Sleep: ");
+        Serial.println(displayTime());
+        String message = "Sleep for: ";
+        message += String(SLEEP_TIME);
+        message += " seconds";
+        Serial.println(message);
+        updateLog(message);
+
+        //Turn everything off
+        digitalWrite(GPS_CLOCK_EN, LOW);
+        digitalWrite(TEMP_EN, LOW);
+        digitalWrite(SONAR_EN, LOW);
+        gpio_hold_en(GPS_CLOCK_EN); //Make sure clock is off
+        gpio_hold_en(TEMP_EN); //Make sure temp sensor is off
+        gpio_hold_en(SONAR_EN); //Make sure Maxbotix is off
+        gpio_deep_sleep_hold_en();
+        esp_sleep_enable_ext0_wakeup(SONAR_EN, 1);//TODO: this line seems unnecesary
+
+        //Go to sleep
+        Serial.flush();
+        esp_deep_sleep_start();
+        //Sleeps until woken, runs setup() again
+    }
 }
 
 //-----------------------------------------------------------------------------------
@@ -332,32 +319,25 @@ int sonarMeasure()
   }
 
 //Fill time, temp, and measurement arrays
-void fillArrays(sensorData *data)
+void readData(sensorData *data, uint32_t idx)
 {
-  //Turn on Maxbotix
-  digitalWrite(SONAR_EN, HIGH);
-
   //Fill measurement and timestamp lists
-  for (int i = 0; i < LIST_SIZE; i++)
-  {
-    data->readList[i] = sonarMeasure();
-    data->timeList[i] = unixTime();
-    data->tempExtList[i] =  celsius_to_fahrenheit(tempSensor.readTemperature());
-    data->humExtList[i] = tempSensor.readHumidity();
+
+    data->readList[idx] = sonarMeasure();
+    data->timeList[idx] = unixTime();
+    data->tempExtList[idx] =  celsius_to_fahrenheit(tempSensor.readTemperature());
+    data->humExtList[idx] = tempSensor.readHumidity();
 
     //Print timestamps and measurement as they are taken
     Serial.printf("%d  %d  %d  %d  %d  %d  %d\n",
-        data->timeList[i],
-        data->readList[i],
-        data->tempExtList[i],
-        data->humExtList[i],
-        data->myLat,
-        data->myLong,
-        data->myAlt);
-  }
+    data->timeList[idx],
+    data->readList[idx],
+    data->tempExtList[idx],
+    data->humExtList[idx],
+    data->myLat,
+    data->myLong,
+    data->myAlt);
 
-  //Turn off Maxbotix
-  digitalWrite(SONAR_EN, LOW);
 }
 
 //Write the list to the sd card
