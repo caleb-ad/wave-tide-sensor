@@ -69,7 +69,7 @@
 
 // The RTC slow timer is driven by the RTC slow clock, typically 150kHz
 const uint32_t rtc_slow_clock_freq = rtc_clk_slow_freq_get_hz();
-uint32_t clock_start; //the rtc clock cycle count that we begin measuring at
+uint64_t clock_start; //the rtc clock cycle count that we begin measuring at
 
 //For sleep
 RTC_DATA_ATTR int wakeCounter = -1;
@@ -136,9 +136,8 @@ void setup()
     gps_polling_config.auto_reload = timer_autoreload_t::TIMER_AUTORELOAD_EN;
     gps_polling_config.counter_dir = timer_count_dir_t::TIMER_COUNT_UP;
     gps_polling_config.divider = 2; //should be in [2, 65536]
-    // gps_polling_config.counter_en = timer_start_t::TIMER_PAUSE;
     timer_init(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, &gps_polling_config);
-    timer_set_counter_value(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, rtc_clk_apb_freq_get() / (2 * 100)); // configure timer to count 10 millis
+    timer_set_alarm_value(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, rtc_clk_apb_freq_get() / (2 * 100)); // configure timer to count 10 millis
     timer_isr_callback_add(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, gps_polling_isr, nullptr, ESP_INTR_FLAG_LOWMED);
     timer_enable_intr(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0);
     timer_start(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0);
@@ -217,13 +216,11 @@ void loop()
         sdWrite(&data);
 
         //Print sleep time info
-        Serial.print("Sleep: ");
-        Serial.println(displayTime());
-        String message = "Sleep for: ";
-        message += String(SLEEP_TIME);
-        message += " seconds";
-        Serial.println(message);
-        updateLog(message);
+        Serial.printf("Sleep:\n    time: %d\n    secs: %d\n",
+            displayTime(),
+            (uint64_t)READ_INTERVAL - (rtc_time_get() - clock_start) * rtc_slow_clock_freq);
+        //TODO log more informative message
+        updateLog(String("sleeping"));
 
         //Turn everything off
         digitalWrite(GPS_CLOCK_EN, LOW);
@@ -238,7 +235,7 @@ void loop()
         //Prepare and go into sleep
         Serial.flush();
         digitalWrite(LED_BUILTIN, LOW);
-        esp_sleep_enable_timer_wakeup(secs_to_microsecs(READ_INTERVAL) - (rtc_time_get() - clock_start) * rtc_slow_clock_freq);
+        esp_sleep_enable_timer_wakeup(secs_to_microsecs(READ_INTERVAL - (rtc_time_get() - clock_start) * rtc_slow_clock_freq));
         esp_deep_sleep_start();
         //Sleeps until woken, runs setup() again
     }
