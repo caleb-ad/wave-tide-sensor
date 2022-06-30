@@ -69,7 +69,7 @@
 
 // The RTC slow timer is driven by the RTC slow clock, typically 150kHz
 const uint32_t rtc_slow_clock_freq = rtc_clk_slow_freq_get_hz();
-uint32_t rtc_slow_clock_start;
+uint32_t clock_start; //the rtc clock cycle count that we begin measuring at
 
 //For sleep
 RTC_DATA_ATTR int wakeCounter = -1;
@@ -102,6 +102,8 @@ bool gps_polling_isr(void* arg) {
 //-----------------------------------------------------------------------------------
 void setup()
 {
+    clock_start = rtc_time_get();
+
     //Setup for SD card
     pinMode(SD_CS, OUTPUT);
     SD.begin(SD_CS);
@@ -170,7 +172,6 @@ void setup()
 
 void loop()
 {
-    static uint32_t clock_start = rtc_time_get();
     static int readList[LIST_SIZE];
     static String timeList[LIST_SIZE];
     static float tempExtList[LIST_SIZE];
