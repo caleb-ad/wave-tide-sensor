@@ -401,15 +401,10 @@ void sdBegin()
 
 void writeLog(String message)
 {
-    //Create message
-    String myMessage = String(unixTime());
-    myMessage += ": ";
-    myMessage += message;
-
     //Open log file and write to it
     File logFile = SD.open("/logFile.txt", FILE_APPEND);
     if(!logFile) return;
     //logFile.seek(logFile.size());
-    logFile.println(myMessage);
+    logFile.printf("%s: %s", unixTime(), message);
     logFile.close();
 }
