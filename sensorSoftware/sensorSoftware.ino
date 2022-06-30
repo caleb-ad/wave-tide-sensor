@@ -41,8 +41,8 @@
 
 
 //! Changed for debugging
-#define READ_TIME 3 //Length of time to measure (in seconds)
-#define READ_INTERVAL 11 //Measurement scheme (in seconds)
+#define READ_TIME 5 //Length of time to measure (in seconds)
+#define READ_INTERVAL 10 //Measurement scheme (in seconds)
 #define EFF_HZ 5.64 //MB 7388 (10 meter sensor)
 
 //#define EFF_HZ 6.766 //MB 7388 (5 meter sensor)
@@ -108,28 +108,28 @@ void setup()
     //Setup for SD card
     pinMode(SD_CS, OUTPUT);
     SD.begin(SD_CS);
-    updateLog("Waking Up");
-    updateLog("SD enabled");
+    writeLog("Waking Up");
+    writeLog("SD enabled");
 
     //9600 bps for Maxbotix
     Serial.begin(115200); //Serial monitor
     Serial1.begin(9600, SERIAL_8N1, SONAR_RX, SONAR_TX); //Maxbotix
     Serial2.begin(9600, SERIAL_8N1, GPS_RX, GPS_TX); //Clock
-    updateLog("Serial Ports Enabled");
+    writeLog("Serial Ports Enabled");
 
     //Run Setup, check SD file every 1000th wake cycle
-    wakeCounter += 1;
     Serial.print("Wake Counter: ");
     Serial.println(wakeCounter);
     if ((wakeCounter % 1000) == 0) {
         wakeCounter = 0;
         sdBegin();
     }
+    wakeCounter += 1;
 
 
     Serial.println("GPS Begin");
     startGPS();
-    updateLog("GPS enabled");
+    writeLog("GPS enabled");
 
     // configure timer to manage GPS polling
     timer_config_t gps_polling_config;
@@ -153,18 +153,18 @@ void setup()
     digitalWrite(GPS_CLOCK_EN, HIGH); //Hold clock high
     digitalWrite(TEMP_EN, HIGH); //Hold high to supply power to temp sensor
     digitalWrite(SONAR_EN, LOW); //Hold low to prevent measurements
-    updateLog("Start/Stop Enabled");
+    writeLog("Start/Stop Enabled");
 
     //Setup for temp/humidity
     tempSensor.begin(TEMP_SENSOR_ADDRESS); //Hex Address for new I2C pins
-    updateLog("Temp Sensor Enabled");
+    writeLog("Temp Sensor Enabled");
 
     //Setup for LED
     pinMode(LED_BUILTIN, OUTPUT);
-    updateLog("LEDs enabled");
+    writeLog("LEDs enabled");
 
     //Check for SD header file
-    updateLog("Startup concluded");
+    writeLog("Startup concluded");
 
     Serial.println();
     Serial.print("Starting: ");
@@ -213,8 +213,8 @@ void loop()
         digitalWrite(SONAR_EN, LOW);
 
         //Write to SD card and serial monitor
-        updateLog("Done filling arrays");
-        updateLog("Writing to SD card");
+        writeLog("Done filling arrays");
+        writeLog("Writing to SD card");
         sdWrite(&data);
 
         //Print sleep time info
@@ -223,7 +223,7 @@ void loop()
         Serial.printf("Sleeping for %lu secs\n", READ_INTERVAL - (rtc_time_get() - clock_start) / (uint64_t)rtc_slow_clk_hz);
 
         //TODO log more informative message
-        updateLog(String("sleeping"));
+        writeLog(String("sleeping"));
 
         //Turn everything off
         digitalWrite(GPS_CLOCK_EN, LOW);
@@ -250,16 +250,16 @@ void startGPS()
 {
   // 9600 NMEA is the default baud rate for Adafruit MTK GPS's- some use 4800
   GPS.begin(9600);
-  updateLog("GPS Serial Enabled");
+  writeLog("GPS Serial Enabled");
 
   // uncomment this line to turn on RMC (recommended minimum) and GGA (fix data) including altitude
   GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCGGA);
   //GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCONLY);
-  updateLog("Minimum Recommended Enabled");
+  writeLog("Minimum Recommended Enabled");
 
   // Set the update rate
   GPS.sendCommand(PMTK_SET_NMEA_UPDATE_10HZ);
-  updateLog("GPS Frequency Enabled");
+  writeLog("GPS Frequency Enabled");
 }
 
 // Get current unix time
@@ -399,7 +399,7 @@ void sdBegin()
     }
 }
 
-void updateLog(String message)
+void writeLog(String message)
 {
     //Create message
     String myMessage = String(unixTime());
@@ -407,7 +407,7 @@ void updateLog(String message)
     myMessage += message;
 
     //Open log file and write to it
-    File logFile = SD.open("/logFile.txt", FILE_WRITE);
+    File logFile = SD.open("/logFile.txt", FILE_APPEND);
     if(!logFile) return;
     //logFile.seek(logFile.size());
     logFile.println(myMessage);
