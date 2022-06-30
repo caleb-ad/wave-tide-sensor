@@ -218,9 +218,9 @@ void loop()
         sdWrite(&data);
 
         //Print sleep time info
-        Serial.printf("Sleep:\n    time: %s\n    secs: %lu\n",
-            displayTime(),
-            (rtc_time_get() - clock_start) / rtc_slow_clk_hz);
+        //* Why does the printf not work with both the str and the number?
+        Serial.printf("Going to sleep at %s\n", displayTime().c_str());
+        Serial.printf("Sleeping for %lu secs\n", READ_INTERVAL - (rtc_time_get() - clock_start) / (uint64_t)rtc_slow_clk_hz);
 
         //TODO log more informative message
         updateLog(String("sleeping"));
