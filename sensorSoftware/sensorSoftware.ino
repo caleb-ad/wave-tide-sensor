@@ -58,8 +58,6 @@
 #define SONAR_TX GPIO_NUM_32 // Sonar sensor transmit pin
 #define SONAR_EN GPIO_NUM_33 //Sonar measurements are disabled when this pin is pulled low
 
-// #define LED_BUILTIN GPIO_NUM_2
-
 #define GPS_MIN_TIME 100
 #define GPS_RX GPIO_NUM_16
 #define GPS_TX GPIO_NUM_17
@@ -69,9 +67,9 @@
 #define TEMP_SENSOR_ADDRESS 0x44
 #define TEMP_EN GPIO_NUM_15
 
-#define LED_PIN 2
-
-uint32_t clock_freq;
+// The RTC slow timer is driven by the RTC slow clock, typically 150kHz
+const uint32_t rtc_slow_clock_freq = rtc_clk_slow_freq_get_hz();
+uint32_t rtc_slow_clock_start;
 
 //For sleep
 RTC_DATA_ATTR int wakeCounter = -1;
@@ -83,7 +81,6 @@ bool request_GPS_poll = false;
 //Objects to manage peripherals
 Adafruit_GPS GPS(&Serial2);
 Adafruit_SHT31 tempSensor = Adafruit_SHT31();
-
 
 struct sensorData {
     int *readList;
@@ -160,7 +157,7 @@ void setup()
     updateLog("Temp Sensor Enabled");
 
     //Setup for LED
-    pinMode(LED_PIN, OUTPUT);
+    pinMode(LED_BUILTIN, OUTPUT);
     updateLog("LEDs enabled");
 
     //Check for SD header file
@@ -173,6 +170,7 @@ void setup()
 
 void loop()
 {
+    static uint32_t clock_start = rtc_time_get();
     static int readList[LIST_SIZE];
     static String timeList[LIST_SIZE];
     static float tempExtList[LIST_SIZE];
@@ -189,7 +187,7 @@ void loop()
     };
 
     //Clear LED
-    digitalWrite(LED_PIN, LOW);
+    digitalWrite(LED_BUILTIN, LOW);
     //Turn on Maxbotix
     digitalWrite(SONAR_EN, HIGH);
 
@@ -216,11 +214,6 @@ void loop()
         updateLog("Writing to SD card");
         sdWrite(&data);
 
-        //Prepare deep sleep
-        digitalWrite(LED_PIN, LOW);
-        updateSleep();
-        esp_sleep_enable_timer_wakeup(secs_to_microsecs(SLEEP_TIME));
-
         //Print sleep time info
         Serial.print("Sleep: ");
         Serial.println(displayTime());
@@ -238,10 +231,12 @@ void loop()
         gpio_hold_en(TEMP_EN); //Make sure temp sensor is off
         gpio_hold_en(SONAR_EN); //Make sure Maxbotix is off
         gpio_deep_sleep_hold_en();
-        esp_sleep_enable_ext0_wakeup(SONAR_EN, 1);//TODO: this line seems unnecesary
+        // esp_sleep_enable_ext0_wakeup(SONAR_EN, 1);//TODO: this line seems unnecesary
 
-        //Go to sleep
+        //Prepare and go into sleep
         Serial.flush();
+        digitalWrite(LED_BUILTIN, LOW);
+        esp_sleep_enable_timer_wakeup(secs_to_microsecs(READ_INTERVAL) - (rtc_time_get() - clock_start) * rtc_slow_clock_freq);
         esp_deep_sleep_start();
         //Sleeps until woken, runs setup() again
     }
