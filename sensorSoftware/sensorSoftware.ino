@@ -41,14 +41,15 @@
 
 
 //! Changed for debugging
-#define READ_TIME 1 //Length of time to measure (in seconds)
-#define READ_INTERVAL 5 //Measurement scheme (in seconds)
+#define READ_TIME 3 //Length of time to measure (in seconds)
+#define READ_INTERVAL 11 //Measurement scheme (in seconds)
 #define EFF_HZ 5.64 //MB 7388 (10 meter sensor)
+
 //#define EFF_HZ 6.766 //MB 7388 (5 meter sensor)
 #define LIST_SIZE (uint32_t)(EFF_HZ*READ_TIME)
-#define secs_to_microsecs(__seconds) (__seconds * 1000000)
-#define celsius_to_fahrenheit(__celsius) (__celsius * 9.0 / 5.0 + 32.0)
-#define GMT_to_PST(__GMT) ((__GMT + 16) % 24)
+#define secs_to_microsecs(__seconds) ((__seconds) * 1000000)
+#define celsius_to_fahrenheit(__celsius) ((__celsius) * 9.0 / 5.0 + 32.0)
+#define GMT_to_PST(__GMT) (((__GMT) + 16) % 24)
 
 #define FORMAT_BUF_SIZE 100
 
@@ -68,12 +69,12 @@
 #define TEMP_EN GPIO_NUM_15
 
 // The RTC slow timer is driven by the RTC slow clock, typically 150kHz
-const uint32_t rtc_slow_clock_freq = rtc_clk_slow_freq_get_hz();
 uint64_t clock_start; //the rtc clock cycle count that we begin measuring at
+const uint32_t rtc_slow_clk_hz = rtc_clk_slow_freq_get_hz();
+const uint32_t rtc_abp_clk_hz = rtc_clk_apb_freq_get();
 
-//For sleep
-RTC_DATA_ATTR int wakeCounter = -1;
-int SLEEP_TIME;
+// Data which should be preserved between sleep/wake cycles
+RTC_DATA_ATTR uint32_t wakeCounter = 0;
 
 // ISR variables
 bool request_GPS_poll = false;
@@ -137,7 +138,7 @@ void setup()
     gps_polling_config.counter_dir = timer_count_dir_t::TIMER_COUNT_UP;
     gps_polling_config.divider = 2; //should be in [2, 65536]
     timer_init(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, &gps_polling_config);
-    timer_set_alarm_value(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, rtc_clk_apb_freq_get() / (2 * 100)); // configure timer to count 10 millis
+    timer_set_alarm_value(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, rtc_abp_clk_hz / (2 * 100)); // configure timer to count 10 millis
     timer_isr_callback_add(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, gps_polling_isr, nullptr, ESP_INTR_FLAG_LOWMED);
     timer_enable_intr(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0);
     timer_start(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0);
@@ -193,6 +194,7 @@ void loop()
     digitalWrite(SONAR_EN, HIGH);
 
     if(request_GPS_poll) {
+        request_GPS_poll = false;
         GPS.read();
         if (GPS.newNMEAreceived()) {
             // a tricky thing here is if we print the NMEA sentence, or data
@@ -216,9 +218,10 @@ void loop()
         sdWrite(&data);
 
         //Print sleep time info
-        Serial.printf("Sleep:\n    time: %d\n    secs: %d\n",
+        Serial.printf("Sleep:\n    time: %s\n    secs: %lu\n",
             displayTime(),
-            (uint64_t)READ_INTERVAL - (rtc_time_get() - clock_start) * rtc_slow_clock_freq);
+            (rtc_time_get() - clock_start) / rtc_slow_clk_hz);
+
         //TODO log more informative message
         updateLog(String("sleeping"));
 
@@ -235,7 +238,7 @@ void loop()
         //Prepare and go into sleep
         Serial.flush();
         digitalWrite(LED_BUILTIN, LOW);
-        esp_sleep_enable_timer_wakeup(secs_to_microsecs(READ_INTERVAL - (rtc_time_get() - clock_start) * rtc_slow_clock_freq));
+        esp_sleep_enable_timer_wakeup(secs_to_microsecs(READ_INTERVAL - (rtc_time_get() - clock_start) / rtc_slow_clk_hz));
         esp_deep_sleep_start();
         //Sleeps until woken, runs setup() again
     }
@@ -323,7 +326,7 @@ void readData(sensorData *data, uint32_t idx)
     data->humExtList[idx] = tempSensor.readHumidity();
 
     //Print timestamps and measurement as they are taken
-    Serial.printf("%d  %d  %d  %d  %d  %d  %d\n",
+    Serial.printf("%s  %d  %f  %f  %f  %f  %f\n",
     data->timeList[idx],
     data->readList[idx],
     data->tempExtList[idx],
@@ -349,7 +352,7 @@ void sdWrite(sensorData *data)
   if(!dataFile) return;
   Serial.printf("Writing %s: ", fileName.c_str());
 
-  dataFile.printf("%d, %d, %d", data->myLong, data->myLat, data->myAlt);
+  dataFile.printf("%f, %f, %f", data->myLong, data->myLat, data->myAlt);
 
   //Iterate over entire list
   for (int i = 0; i < LIST_SIZE; i++)
@@ -362,7 +365,7 @@ void sdWrite(sensorData *data)
       return;
     }
 
-    dataFile.printf("%d, %d, %d, %d\n",
+    dataFile.printf("%s, %d, %f, %f\n",
         data->timeList[i],
         data->readList[i],
         data->tempExtList[i],
