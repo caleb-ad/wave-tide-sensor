@@ -397,32 +397,6 @@ void sdBegin()
     }
 }
 
-//Update Sleep Time
-void updateSleep()
-{
-    //Update the current minute (0-59) and convert to seconds
-    int nowTime = 60*GPS.minute + GPS.seconds;
-
-
-    //Calculate sleep time based on interval
-    SLEEP_TIME = READ_INTERVAL - (nowTime % READ_INTERVAL);
-
-    //Offset for half the reading time
-    SLEEP_TIME -= (READ_TIME / 2);
-
-    //If something went wrong and the sleep time is too high, sleep for the interval
-    if (SLEEP_TIME > READ_INTERVAL)
-    {
-        SLEEP_TIME = READ_INTERVAL;
-    }
-
-    if (SLEEP_TIME < 0)
-    {
-        //Actually only sleep for 1 second
-        SLEEP_TIME = 1;
-    }
-}
-
 void updateLog(String message)
 {
     //Create message
