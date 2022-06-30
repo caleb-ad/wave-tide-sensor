@@ -1,4 +1,8 @@
 {
+    "configuration": "PartitionScheme=default,FlashFreq=80,UploadSpeed=921600,DebugLevel=none",
     "board": "esp32:esp32:node32s",
+    "sketch": "sensorSoftware\\sensorSoftware.ino",
+    "programmer": "esp32:esptool",
+    "output": "output",
     "port": "COM7"
 }
