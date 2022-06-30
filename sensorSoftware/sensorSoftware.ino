@@ -125,6 +125,7 @@ void setup()
         sdBegin();
     }
 
+
     Serial.println("GPS Begin");
     startGPS();
     updateLog("GPS enabled");
