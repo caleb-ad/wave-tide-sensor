@@ -123,13 +123,9 @@ void setup()
     if ((wakeCounter % 1000) == 0) {
         wakeCounter = 0;
         sdBegin();
+        startGPS();
     }
     wakeCounter += 1;
-
-
-    Serial.println("GPS Begin");
-    startGPS();
-    writeLog("GPS enabled");
 
     // configure timer to manage GPS polling
     timer_config_t gps_polling_config;
@@ -405,6 +401,6 @@ void writeLog(String message)
     File logFile = SD.open("/logFile.txt", FILE_APPEND);
     if(!logFile) return;
     //logFile.seek(logFile.size());
-    logFile.printf("%s: %s", unixTime(), message);
+    logFile.printf("%s: %s\n", unixTime(), message);
     logFile.close();
 }
