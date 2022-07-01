@@ -41,8 +41,8 @@
 
 
 //! Changed for debugging
-#define READ_TIME 5 //Length of time to measure (in seconds)
-#define READ_INTERVAL 10 //Measurement scheme (in seconds)
+#define READ_TIME 2*60 //Length of time to measure (in seconds)
+#define READ_INTERVAL 10*60 //Measurement scheme (in seconds)
 #define EFF_HZ 5.64 //MB 7388 (10 meter sensor)
 
 //#define EFF_HZ 6.766 //MB 7388 (5 meter sensor)
@@ -84,7 +84,7 @@ Adafruit_GPS GPS(&Serial2);
 Adafruit_SHT31 tempSensor = Adafruit_SHT31();
 
 struct sensorData {
-    int *readList;
+    int *sonarList;
     String *timeList;
     float *tempExtList;
     float *humExtList;
@@ -96,6 +96,10 @@ struct sensorData {
 // every 10ms read from the GPS, when
 bool gps_polling_isr(void* arg) {
     request_GPS_poll = true;
+    // reading is slow, so the interrupt watchdog timer must be disabled. Which begs the question, should this really be done in an interrupt?
+    timer_group_intr_disable(timer_group_t::TIMER_GROUP_0, timer_intr_t::TIMER_INTR_WDT);
+    GPS.read();
+    timer_group_intr_disable(timer_group_t::TIMER_GROUP_0, timer_intr_t::TIMER_INTR_WDT);
     timer_group_clr_intr_status_in_isr(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0);
     return false;
 }
@@ -169,13 +173,14 @@ void setup()
 
 void loop()
 {
-    static int readList[LIST_SIZE];
+    // TODO experiment with mallocing this data
+    static int sonarList[LIST_SIZE];
     static String timeList[LIST_SIZE];
     static float tempExtList[LIST_SIZE];
     static float humExtList[LIST_SIZE];
     static uint32_t idx = 0;
     static sensorData data = {
-        readList,
+        sonarList,
         timeList,
         tempExtList,
         humExtList,
@@ -316,7 +321,7 @@ void readData(sensorData *data, uint32_t idx)
 {
   //Fill measurement and timestamp lists
 
-    data->readList[idx] = sonarMeasure();
+    data->sonarList[idx] = sonarMeasure();
     data->timeList[idx] = unixTime();
     data->tempExtList[idx] =  celsius_to_fahrenheit(tempSensor.readTemperature());
     data->humExtList[idx] = tempSensor.readHumidity();
@@ -324,7 +329,7 @@ void readData(sensorData *data, uint32_t idx)
     //Print timestamps and measurement as they are taken
     Serial.printf("%s  %d  %f  %f  %f  %f  %f\n",
     data->timeList[idx],
-    data->readList[idx],
+    data->sonarList[idx],
     data->tempExtList[idx],
     data->humExtList[idx],
     data->myLat,
@@ -364,7 +369,7 @@ void sdWrite(sensorData *data)
 
     dataFile.printf("%s, %d, %f, %f\n",
         data->timeList[i],
-        data->readList[i],
+        data->sonarList[i],
         data->tempExtList[i],
         data->humExtList[i]);
   }
@@ -399,7 +404,7 @@ void sdBegin()
 void writeLog(String message)
 {
     //Open log file and write to it
-    File logFile = SD.open("/logFile.txt", FILE_APPEND);
+    File logFile = SD.open("/logFile.txt", FILE_WRITE);
     if(!logFile) return;
     //logFile.seek(logFile.size());
     logFile.printf("%s: %s\n", unixTime(), message);
