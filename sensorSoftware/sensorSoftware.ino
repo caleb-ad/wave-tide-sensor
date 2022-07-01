@@ -340,7 +340,8 @@ void sdWrite(sensorData *data)
 
   //Create string for new file name
   String fileName = "/Data/";
-  fileName += String(getTime(), HEX);
+  //TODO remove HACK
+  fileName += String(getTime() + (uint32_t)rtc_time_get(), HEX);
   fileName += ".txt";
 
   //Create and open a file
