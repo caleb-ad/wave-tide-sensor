@@ -104,9 +104,9 @@ struct sensorData {
 bool gps_polling_isr(void* arg) {
     // reading is slow (but apparently less than 1ms), so the interrupt watchdog timer must be disabled.
     // Which begs the question, should this really be done in an interrupt?
-    timer_group_intr_disable(timer_group_t::TIMER_GROUP_1, timer_intr_t::TIMER_INTR_WDT);
+    // timer_group_intr_disable(timer_group_t::TIMER_GROUP_1, timer_intr_t::TIMER_INTR_WDT);
     GPS.read();
-    timer_group_intr_enable(timer_group_t::TIMER_GROUP_1, timer_intr_t::TIMER_INTR_WDT);
+    // timer_group_intr_enable(timer_group_t::TIMER_GROUP_1, timer_intr_t::TIMER_INTR_WDT);
 
     timer_group_clr_intr_status_in_isr(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0);
     return false;
@@ -118,6 +118,9 @@ void sonarDataReady(void) {
 
 //-----------------------------------------------------------------------------------
 void setup(void) {
+    // reading is slow (but apparently less than 1ms), so the interrupt watchdog timer must be disabled.
+    // Which begs the question, should this really be done in an interrupt?
+    timer_group_intr_disable(timer_group_t::TIMER_GROUP_1, timer_intr_t::TIMER_INTR_WDT);
 
     // Clock cycle count when we begin measuring
     clock_start = rtc_time_get();
@@ -311,17 +314,10 @@ char* unixTime(UnixTime now) {
 //Get a reading from the sonar
 int32_t sonarMeasure() {
     char inData[5] = {0}; //char array to read data into
-    long start = millis(); //timeout if read takes too long
-    // Clear cache ready for next reading
-    Serial1.flush();
-
-    //Wait for device to be ready
-    while (!Serial1.available()){if(millis() - start > SONAR_MEASURE_TIMEOUT) return -1;}
 
     //Maxbotix reports "Rxxxx", where xxxx is a 4 digit mm distance
-    while (Serial1.read() != 'R'){}
+    if(!Serial1.find('R')) return -1;
     Serial1.readBytes(inData, 4);
-
     uint result = atoi(inData);
 
     //Turn on LED if measuring properly
@@ -336,15 +332,17 @@ int32_t sonarMeasure() {
   }
 
 //Fill time, temp, and measurement arrays
+//Should be called whenever sonar sensor has data ready
 void readData(sensorData *data, uint32_t idx)
 {
-  //Fill measurement and timestamp lists
+    //Fill measurement and timestamp lists
+    //
+    while(Serial1.available()) {
+        data->sonarList[idx] = sonarMeasure();
+        data->timeList[idx] = getTime();
+        tempSensor.readBoth(data->tempExtList + idx, data->humExtList + idx);
 
-    data->sonarList[idx] = sonarMeasure();
-    data->timeList[idx] = getTime();
-    tempSensor.readBoth(data->tempExtList + idx, data->humExtList + idx);
-
-    Serial.printf("%s %d  %f  %f  %f  %f  %f\n",
+        Serial.printf("%s %d  %f  %f  %f  %f  %f\n",
         unixTime(data->timeList[idx]),
         data->sonarList[idx],
         data->tempExtList[idx],
@@ -352,6 +350,7 @@ void readData(sensorData *data, uint32_t idx)
         data->myLat,
         data->myLong,
         data->myAlt);
+    }
 }
 
 //Write the list to the sd card
