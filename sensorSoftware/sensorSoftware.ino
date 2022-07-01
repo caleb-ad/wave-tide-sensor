@@ -45,13 +45,15 @@
 #define READ_INTERVAL 15 //Measurement scheme (in seconds)
 #define EFF_HZ 5.64 //MB 7388 (10 meter sensor)
 
+#define UNIX_TIME_ZONE 8
+
 //#define EFF_HZ 6.766 //MB 7388 (5 meter sensor)
 #define LIST_SIZE (uint32_t)(EFF_HZ*READ_TIME)
 #define secs_to_microsecs(__seconds) ((__seconds) * 1000000)
 #define celsius_to_fahrenheit(__celsius) ((__celsius) * 9.0 / 5.0 + 32.0)
 #define GMT_to_PST(__GMT) (((__GMT) + 16) % 24)
-
 #define FORMAT_BUF_SIZE 100
+
 
 #define SD_CS GPIO_NUM_5 //SD card chip select pin
 
@@ -77,8 +79,12 @@ const uint32_t rtc_abp_clk_hz = rtc_clk_apb_freq_get();
 // Data which should be preserved between sleep/wake cycles
 RTC_DATA_ATTR uint32_t wakeCounter = 0;
 
+// The format_buffer is overwritten by displayTime and unixTime
+char format_buf[100];
+
 // ISR variables
 bool request_GPS_poll = false;
+uint32_t poll_count = 0;
 
 //Objects to manage peripherals
 Adafruit_GPS GPS(&Serial2);
@@ -86,7 +92,7 @@ Adafruit_SHT31 tempSensor = Adafruit_SHT31();
 
 struct sensorData {
     int *sonarList;
-    String *timeList;
+    UnixTime *timeList;
     float *tempExtList;
     float *humExtList;
     float myLong;
@@ -97,6 +103,7 @@ struct sensorData {
 // every 10ms read from the GPS, when
 bool gps_polling_isr(void* arg) {
     request_GPS_poll = true;
+    poll_count++;
 
     // reading is slow (but apparently less than 1ms), so the interrupt watchdog timer must be disabled.
     // Which begs the question, should this really be done in an interrupt?
@@ -173,15 +180,21 @@ void setup() {
 
     Serial.println();
     Serial.print("Starting: ");
-    Serial.println(displayTime());
+    Serial.println(displayTime(getTime()));
 }
 
 void loop() {
-    // TODO experiment with mallocing this data
-    static int sonarList[LIST_SIZE];
-    static String timeList[LIST_SIZE];
-    static float tempExtList[LIST_SIZE];
-    static float humExtList[LIST_SIZE];
+    //TODO way to prevent reallocation of memory every sleep/wake cycle
+    //C++ exceptions are disabled by default, check for errors
+    static int* sonarList = new(std::nothrow) int[LIST_SIZE];
+    static UnixTime* timeList = (UnixTime*)(operator new[] (sizeof(UnixTime) * LIST_SIZE, std::nothrow));
+    static float* tempExtList = new(std::nothrow) float[LIST_SIZE];
+    static float* humExtList = new(std::nothrow) float[LIST_SIZE];
+    //failed assertions cause a Fatal error
+    assert(sonarList != nullptr);
+    assert(timeList != nullptr);
+    assert(tempExtList != nullptr);
+    assert(humExtList != nullptr);
     static uint32_t idx = 0;
     static sensorData data = {
         sonarList,
@@ -223,8 +236,9 @@ void loop() {
         sdWrite(&data);
 
         //Print sleep time info
+        //TODO it seems that printf with strings and numbers fails, is this because the stack grows too large?
         //* Why does the printf not work with both the str and the number?
-        Serial.printf("Going to sleep at %s\n", displayTime().c_str());
+        Serial.printf("Going to sleep at %s\n", displayTime(getTime()));
         Serial.printf("Sleeping for %lu secs\n", READ_INTERVAL - (rtc_time_get() - clock_start) / (uint64_t)rtc_slow_clk_hz);
 
         //TODO log more informative message
@@ -239,10 +253,17 @@ void loop() {
         gpio_hold_en(SONAR_EN); //Make sure Maxbotix is off
         gpio_deep_sleep_hold_en();
 
+        //Free allocated data
+        //This may not be neccesary because the chip SRAM resets after waking from deep sleep
+        delete[] sonarList;
+        delete[] timeList;
+        delete[] tempExtList;
+        delete[] humExtList;
+
         //Prepare and go into sleep
         Serial.flush();
         digitalWrite(LED_BUILTIN, LOW);
-        esp_sleep_enable_timer_wakeup(1000000 * (READ_INTERVAL - (rtc_time_get() - clock_start)) / rtc_slow_clk_hz);
+        esp_sleep_enable_timer_wakeup(secs_to_microsecs((READ_INTERVAL - (rtc_time_get() - clock_start)) / rtc_slow_clk_hz));
         esp_deep_sleep_start();
         //Sleeps until woken, runs setup() again
     }
@@ -266,29 +287,24 @@ void startGPS()
   writeLog("GPS Frequency Enabled");
 }
 
-// Get current unix time
-uint32_t getTime()
+// Return a current time_stamp
+UnixTime getTime()
 {
-    static UnixTime stamp(8);
+    UnixTime stamp(UNIX_TIME_ZONE);
     stamp.setDateTime(GPS.year + 2000, GPS.month, GPS.day, GPS.hour, GPS.minute, GPS.seconds);
-    uint32_t unix = stamp.getUnix();
-
     // unix += 10800; // 3 hrs
-
-    return unix;
+    return stamp;
 }
 
-String displayTime() {
-  char buf[FORMAT_BUF_SIZE];
-  getTime();
-  sprintf(buf, "%02d:%02d:%02d.%03d", GMT_to_PST(GPS.hour), GPS.minute, GPS.seconds, GPS.milliseconds);
-  return String(buf);
+//TODO the current way unixTime and displayTime is probably inefficiant because of nested printf
+char* displayTime(UnixTime now) {
+    snprintf(format_buf, FORMAT_BUF_SIZE, "%02d:%02d:%02d.%03d", now.hour, now.minute, now.second, GPS.milliseconds);
+    return format_buf;
 }
 
-String unixTime() {
-  char buf[FORMAT_BUF_SIZE];
-  sprintf(buf, "%d.%03d", getTime(), GPS.milliseconds);
-  return String(buf);
+char* unixTime(UnixTime now) {
+    snprintf(format_buf, FORMAT_BUF_SIZE, "%d.%03d", now.getUnix(), GPS.milliseconds);
+    return format_buf;
 }
 
 //TODO use Serial::onRecieve
@@ -325,19 +341,17 @@ void readData(sensorData *data, uint32_t idx)
   //Fill measurement and timestamp lists
 
     data->sonarList[idx] = sonarMeasure();
-    data->timeList[idx] = unixTime();
+    data->timeList[idx] = getTime();
     tempSensor.readBoth(data->tempExtList + idx, data->humExtList + idx);
 
-    //Print timestamps and measurement as they are taken
-    Serial.printf("%s  %d  %f  %f  %f  %f  %f\n",
-    data->timeList[idx],
-    data->sonarList[idx],
-    data->tempExtList[idx],
-    data->humExtList[idx],
-    data->myLat,
-    data->myLong,
-    data->myAlt);
-
+    Serial.printf("%s %d  %f  %f  %f  %f  %f\n",
+        unixTime(data->timeList[idx]),
+        data->sonarList[idx],
+        data->tempExtList[idx],
+        data->humExtList[idx],
+        data->myLat,
+        data->myLong,
+        data->myAlt);
 }
 
 //Write the list to the sd card
@@ -348,7 +362,7 @@ void sdWrite(sensorData *data)
   //Create string for new file name
   String fileName = "/Data/";
   //TODO remove HACK
-  fileName += String(getTime() + (uint32_t)rtc_time_get(), HEX);
+  fileName += String(getTime().getUnix() + (uint32_t)rtc_time_get(), HEX);
   fileName += ".txt";
 
   //Create and open a file
@@ -370,7 +384,7 @@ void sdWrite(sensorData *data)
     }
 
     dataFile.printf("%s, %d, %f, %f\n",
-        data->timeList[i],
+        dataFile.print(unixTime(data->timeList[i])),
         data->sonarList[i],
         data->tempExtList[i],
         data->humExtList[i]);
@@ -394,7 +408,7 @@ void sdBegin()
         //Create header with title, timestamp, and column names
         dataFile.println("Cal Poly Tide Sensor");
         dataFile.print("Starting: ");
-        dataFile.println(unixTime());
+        dataFile.println(unixTime(getTime()));
         dataFile.println();
         dataFile.println("UNIX Time, Distance (mm), Internal Temp (F), External Temp (F), Humidity (%), Latitude, Longitude, Altitude");
         dataFile.close();
@@ -409,6 +423,6 @@ void writeLog(String message)
     File logFile = SD.open("/logFile.txt", FILE_WRITE);
     if(!logFile) return;
     //logFile.seek(logFile.size());
-    logFile.printf("%s: %s\n", unixTime(), message);
+    logFile.printf("%s: %s\n", unixTime(getTime()), message);
     logFile.close();
 }
