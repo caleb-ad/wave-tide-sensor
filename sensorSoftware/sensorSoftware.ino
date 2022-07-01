@@ -264,7 +264,7 @@ void loop(void) {
         //Prepare and go into sleep
         Serial.flush();
         digitalWrite(LED_BUILTIN, LOW);
-        esp_sleep_enable_timer_wakeup(secs_to_microsecs((READ_INTERVAL - (rtc_time_get() - clock_start)) / rtc_slow_clk_hz));
+        esp_sleep_enable_timer_wakeup(1000000 * READ_INTERVAL - 1000000 * (rtc_time_get() - clock_start) / rtc_slow_clk_hz);
         esp_deep_sleep_start();
         //Sleeps until woken, runs setup() again
     }
@@ -308,7 +308,6 @@ char* unixTime(UnixTime now) {
     return format_buf;
 }
 
-//TODO use Serial::onRecieve
 //Get a reading from the sonar
 int32_t sonarMeasure() {
     char inData[5] = {0}; //char array to read data into
