@@ -75,6 +75,7 @@
 uint64_t clock_start; //the rtc clock cycle count that we begin measuring at
 const uint32_t rtc_slow_clk_hz = rtc_clk_slow_freq_get_hz();
 const uint32_t rtc_abp_clk_hz = rtc_clk_apb_freq_get();
+uint32_t gps_millis_offset = millis();
 
 // Data which should be preserved between sleep/wake cycles
 RTC_DATA_ATTR uint32_t wakeCounter = 0;
@@ -83,8 +84,7 @@ RTC_DATA_ATTR uint32_t wakeCounter = 0;
 char format_buf[100];
 
 // ISR variables
-bool request_GPS_poll = false;
-uint32_t poll_count = 0;
+bool measurement_request = false;
 
 //Objects to manage peripherals
 Adafruit_GPS GPS(&Serial2);
@@ -102,9 +102,6 @@ struct sensorData {
 
 // every 10ms read from the GPS, when
 bool gps_polling_isr(void* arg) {
-    request_GPS_poll = true;
-    poll_count++;
-
     // reading is slow (but apparently less than 1ms), so the interrupt watchdog timer must be disabled.
     // Which begs the question, should this really be done in an interrupt?
     timer_group_intr_disable(timer_group_t::TIMER_GROUP_1, timer_intr_t::TIMER_INTR_WDT);
@@ -115,8 +112,12 @@ bool gps_polling_isr(void* arg) {
     return false;
 }
 
+void sonarDataReady(void) {
+    measurement_request = true;
+}
+
 //-----------------------------------------------------------------------------------
-void setup() {
+void setup(void) {
 
     // Clock cycle count when we begin measuring
     clock_start = rtc_time_get();
@@ -129,6 +130,8 @@ void setup() {
 
     //9600 bps for Maxbotix
     Serial.begin(115200); //Serial monitor
+    Serial.onReceive(sonarDataReady, false); // register callback
+    Serial.setRxTimeout(1); //!(is this correct?) call callback each time data is recievied
     Serial1.begin(9600, SERIAL_8N1, SONAR_RX, SONAR_TX); //Maxbotix
     Serial2.begin(9600, SERIAL_8N1, GPS_RX, GPS_TX); //Clock
     writeLog("Serial Ports Enabled");
@@ -175,7 +178,6 @@ void setup() {
     pinMode(LED_BUILTIN, OUTPUT);
     writeLog("LEDs enabled");
 
-    //Check for SD header file
     writeLog("Startup concluded");
 
     Serial.println();
@@ -183,7 +185,7 @@ void setup() {
     Serial.println(displayTime(getTime()));
 }
 
-void loop() {
+void loop(void) {
     //TODO way to prevent reallocation of memory every sleep/wake cycle
     //C++ exceptions are disabled by default, check for errors
     static int* sonarList = new(std::nothrow) int[LIST_SIZE];
@@ -211,22 +213,21 @@ void loop() {
     //Turn on Maxbotix
     digitalWrite(SONAR_EN, HIGH);
 
-    if(request_GPS_poll) {
-        request_GPS_poll = false;
-        // GPS.read();
-        if (GPS.newNMEAreceived()) {
-            // a tricky thing here is if we print the NMEA sentence, or data
-            // we end up not listening and catching other sentences!
-            // so be very wary if using OUTPUT_ALLDATA and trying to print out data
-            //Serial.println(GPS.lastNMEA());   // this also sets the newNMEAreceived() flag to false
-            GPS.parse(GPS.lastNMEA());  // this also sets the newNMEAreceived() flag to false
-        }
+
+    if(GPS.newNMEAreceived()) {
+        // a tricky thing here is if we print the NMEA sentence, or data
+        // we end up not listening and catching other sentences!
+        // so be very wary if using OUTPUT_ALLDATA and trying to print out data
+        //Serial.println(GPS.lastNMEA());   // this also sets the newNMEAreceived() flag to false
+        GPS.parse(GPS.lastNMEA());  // this also sets the newNMEAreceived() flag to false
+        gps_millis_offset = millis() - GPS.milliseconds;
     }
-    if(idx < LIST_SIZE) {
+    if(measurement_request && idx < LIST_SIZE) {
+        measurement_request = false;
         readData(&data, idx);
         idx++;
     }
-    else {
+    else if(idx >= LIST_SIZE){
         //Turn off Maxbotix
         digitalWrite(SONAR_EN, LOW);
 
@@ -271,7 +272,7 @@ void loop() {
 
 //-----------------------------------------------------------------------------------
 // Start GPS Clock
-void startGPS()
+void startGPS(void)
 {
   // 9600 NMEA is the default baud rate for Adafruit MTK GPS's- some use 4800
   GPS.begin(9600);
@@ -288,7 +289,7 @@ void startGPS()
 }
 
 // Return a current time_stamp
-UnixTime getTime()
+UnixTime getTime(void)
 {
     UnixTime stamp(UNIX_TIME_ZONE);
     stamp.setDateTime(GPS.year + 2000, GPS.month, GPS.day, GPS.hour, GPS.minute, GPS.seconds);
@@ -298,12 +299,12 @@ UnixTime getTime()
 
 //TODO the current way unixTime and displayTime is probably inefficiant because of nested printf
 char* displayTime(UnixTime now) {
-    snprintf(format_buf, FORMAT_BUF_SIZE, "%02d:%02d:%02d.%03d", now.hour, now.minute, now.second, GPS.milliseconds);
+    snprintf(format_buf, FORMAT_BUF_SIZE, "%02d:%02d:%02d.%03d", now.hour, now.minute, now.second, (millis() - gps_millis_offset)%1000);
     return format_buf;
 }
 
 char* unixTime(UnixTime now) {
-    snprintf(format_buf, FORMAT_BUF_SIZE, "%d.%03d", now.getUnix(), GPS.milliseconds);
+    snprintf(format_buf, FORMAT_BUF_SIZE, "%d.%03d", now.getUnix(), (millis() - gps_millis_offset)%1000);
     return format_buf;
 }
 
@@ -396,7 +397,7 @@ void sdWrite(sensorData *data)
 
 //Check or create header file
 //TODO use printf to simplify
-void sdBegin()
+void sdBegin(void)
 {
     //Check if file exists and create one if not
     if (!SD.exists("/README.txt"))
