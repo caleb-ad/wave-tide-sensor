@@ -41,8 +41,8 @@
 
 
 //! Changed for debugging
-#define READ_TIME 2*60 //Length of time to measure (in seconds)
-#define READ_INTERVAL 10*60 //Measurement scheme (in seconds)
+#define READ_TIME 5 //Length of time to measure (in seconds)
+#define READ_INTERVAL 15 //Measurement scheme (in seconds)
 #define EFF_HZ 5.64 //MB 7388 (10 meter sensor)
 
 //#define EFF_HZ 6.766 //MB 7388 (5 meter sensor)
@@ -58,6 +58,7 @@
 #define SONAR_RX GPIO_NUM_14 // Sonar sensor receive pin
 #define SONAR_TX GPIO_NUM_32 // Sonar sensor transmit pin
 #define SONAR_EN GPIO_NUM_33 //Sonar measurements are disabled when this pin is pulled low
+#define SONAR_MEASURE_TIMEOUT 100 //The number of milliseconds to attempt to get a sonar measure before timing out
 
 #define GPS_MIN_TIME 100
 #define GPS_RX GPIO_NUM_16
@@ -96,17 +97,21 @@ struct sensorData {
 // every 10ms read from the GPS, when
 bool gps_polling_isr(void* arg) {
     request_GPS_poll = true;
-    // reading is slow, so the interrupt watchdog timer must be disabled. Which begs the question, should this really be done in an interrupt?
-    timer_group_intr_disable(timer_group_t::TIMER_GROUP_0, timer_intr_t::TIMER_INTR_WDT);
+
+    // reading is slow (but apparently less than 1ms), so the interrupt watchdog timer must be disabled.
+    // Which begs the question, should this really be done in an interrupt?
+    timer_group_intr_disable(timer_group_t::TIMER_GROUP_1, timer_intr_t::TIMER_INTR_WDT);
     GPS.read();
-    timer_group_intr_disable(timer_group_t::TIMER_GROUP_0, timer_intr_t::TIMER_INTR_WDT);
+    timer_group_intr_enable(timer_group_t::TIMER_GROUP_1, timer_intr_t::TIMER_INTR_WDT);
+
     timer_group_clr_intr_status_in_isr(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0);
     return false;
 }
 
 //-----------------------------------------------------------------------------------
-void setup()
-{
+void setup() {
+
+    // Clock cycle count when we begin measuring
     clock_start = rtc_time_get();
 
     //Setup for SD card
@@ -171,8 +176,7 @@ void setup()
     Serial.println(displayTime());
 }
 
-void loop()
-{
+void loop() {
     // TODO experiment with mallocing this data
     static int sonarList[LIST_SIZE];
     static String timeList[LIST_SIZE];
@@ -196,7 +200,7 @@ void loop()
 
     if(request_GPS_poll) {
         request_GPS_poll = false;
-        GPS.read();
+        // GPS.read();
         if (GPS.newNMEAreceived()) {
             // a tricky thing here is if we print the NMEA sentence, or data
             // we end up not listening and catching other sentences!
@@ -234,12 +238,11 @@ void loop()
         gpio_hold_en(TEMP_EN); //Make sure temp sensor is off
         gpio_hold_en(SONAR_EN); //Make sure Maxbotix is off
         gpio_deep_sleep_hold_en();
-        // esp_sleep_enable_ext0_wakeup(SONAR_EN, 1);//TODO: this line seems unnecesary
 
         //Prepare and go into sleep
         Serial.flush();
         digitalWrite(LED_BUILTIN, LOW);
-        esp_sleep_enable_timer_wakeup(secs_to_microsecs(READ_INTERVAL - (rtc_time_get() - clock_start) / rtc_slow_clk_hz));
+        esp_sleep_enable_timer_wakeup(1000000 * (READ_INTERVAL - (rtc_time_get() - clock_start)) / rtc_slow_clk_hz);
         esp_deep_sleep_start();
         //Sleeps until woken, runs setup() again
     }
@@ -288,16 +291,16 @@ String unixTime() {
   return String(buf);
 }
 
+//TODO use Serial::onRecieve
 //Get a reading from the sonar
-int sonarMeasure()
-{
+int32_t sonarMeasure() {
     char inData[5] = {0}; //char array to read data into
     long start = millis(); //timeout if read takes too long
     // Clear cache ready for next reading
     Serial1.flush();
 
     //Wait for device to be ready
-    while (!Serial1.available()){if(millis() - start > 1000) return -1;}
+    while (!Serial1.available()){if(millis() - start > SONAR_MEASURE_TIMEOUT) return -1;}
 
     //Maxbotix reports "Rxxxx", where xxxx is a 4 digit mm distance
     while (Serial1.read() != 'R'){}
@@ -323,8 +326,7 @@ void readData(sensorData *data, uint32_t idx)
 
     data->sonarList[idx] = sonarMeasure();
     data->timeList[idx] = unixTime();
-    data->tempExtList[idx] =  celsius_to_fahrenheit(tempSensor.readTemperature());
-    data->humExtList[idx] = tempSensor.readHumidity();
+    tempSensor.readBoth(data->tempExtList + idx, data->humExtList + idx);
 
     //Print timestamps and measurement as they are taken
     Serial.printf("%s  %d  %f  %f  %f  %f  %f\n",
