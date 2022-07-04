@@ -81,18 +81,13 @@ const uint32_t rtc_slow_clk_hz = rtc_clk_slow_freq_get_hz();
 const uint32_t rtc_abp_clk_hz = rtc_clk_apb_freq_get();
 uint32_t gps_millis_offset = millis();
 
-wdt_hal_context_t group1_wdt {
-    wdt_inst_t::WDT_MWDT1,
-    &TIMERG1,
-};
-
 // Data which should be preserved between sleep/wake cycles
 RTC_DATA_ATTR uint32_t wakeCounter = 0;
 
 // The format_buffer is overwritten by displayTime and unixTime
 char format_buf[100];
 
-// Serial1 callback variables
+// GPS ISR and Serial1 callback variables
 uint32_t num_gps_reads = 0;
 volatile bool measurement_request = false;
 
@@ -112,12 +107,7 @@ struct sensorData {
 
 // every 10ms read from the GPS, when
 bool gps_polling_isr(void* arg) {
-    // reading is slow (but apparently less than 1ms), so the interrupt watchdog timer must be disabled.
-    // Which begs the question, should this really be done in an interrupt?
-    // timer_group_intr_disable(timer_group_t::TIMER_GROUP_1, timer_intr_t::TIMER_INTR_WDT);
-    // GPS.read();
     num_gps_reads += 1;
-    // timer_group_intr_enable(timer_group_t::TIMER_GROUP_1, timer_intr_t::TIMER_INTR_WDT);
 
     timer_group_clr_intr_status_in_isr(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0);
     return false;
@@ -127,26 +117,8 @@ void sonarDataReady(void) {
     measurement_request = true;
 }
 
-void sonarError(hardwareSerial_error_t err) {
-    Serial.printf("Serial1 err: %d", err);
-}
-
 //-----------------------------------------------------------------------------------
 void setup(void) {
-    // reading is slow (but apparently less than 1ms), so the interrupt watchdog timer must be disabled.
-    // Which begs the question, should this really be done in an interrupt?
-    // timer_group_intr_disable(timer_group_t::TIMER_GROUP_1, timer_intr_t::TIMER_INTR_WDT);
-
-    // wdt_hal_write_protect_disable(&group1_wdt);
-    // // wdt_hal_deinit(&group1_wdt);
-    // wdt_hal_disable(&group1_wdt);
-
-    // wdt_hal_context_t group0_wdt {
-    //     wdt_inst_t::WDT_MWDT0,
-    //     &TIMERG0,
-    // };
-    // wdt_hal_write_protect_disable(&group0_wdt);
-    // wdt_hal_deinit(&group0_wdt);
 
     // Clock cycle count when we begin measuring
     clock_start = rtc_time_get();
@@ -163,7 +135,6 @@ void setup(void) {
     Serial1.begin(9600, SERIAL_8N1, SONAR_RX, SONAR_TX); //Maxbotix
     Serial1.onReceive(sonarDataReady, true); // register callback
     Serial1.setRxTimeout(10);
-    Serial1.onReceiveError(sonarError);
 
     // Serial2.begin(9600, SERIAL_8N1, GPS_RX, GPS_TX); //Clock
     writeLog("Serial Ports Enabled");
