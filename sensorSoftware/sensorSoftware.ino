@@ -35,17 +35,13 @@
 #include <SD.h>
 #include <driver\timer.h>
 #include <soc\rtc.h>
-#include <soc\soc.h>
-#include <hal\wdt_hal.h>
-#include <hal\wdt_types.h>
 #include "Adafruit_SHT31.h"
 #include "Adafruit_GPS.h"
 #include "UnixTime.h"
 
-
 //! Changed for debugging
-#define READ_TIME 2*60 //Length of time to measure (in seconds)
-#define READ_INTERVAL 13*60 //Measurement period (in seconds)
+#define READ_TIME 2 * 60 //Length of time to measure (in seconds)
+#define READ_INTERVAL 13 * 60 //Measurement period (in seconds)
 #define MEASUREMENT_HZ 5.64 //MB 7388 (10 meter sensor)
 
 #define UNIX_TIME_ZONE 8
@@ -131,8 +127,7 @@ void setup(void) {
     Serial1.begin(9600, SERIAL_8N1, SONAR_RX, SONAR_TX); //Maxbotix
     Serial1.onReceive(sonarDataReady, true); // register callback
     Serial1.setRxTimeout(10);
-
-    // Serial2.begin(9600, SERIAL_8N1, GPS_RX, GPS_TX); //Clock
+    startGPS(); //uses Serial2
     writeLog("Serial Ports Enabled");
 
     //Run Setup, check SD file every 1000th wake cycle
@@ -141,11 +136,11 @@ void setup(void) {
     if ((wakeCounter % 1000) == 0) {
         wakeCounter = 0;
         sdBegin();
-        startGPS();
         //TODO get measurements to allign with 15 min intervals
         //TODO wait for GPS to get fix?
     }
     wakeCounter += 1;
+
 
     // configure timer to manage GPS polling
     timer_config_t timer_polling_config;
