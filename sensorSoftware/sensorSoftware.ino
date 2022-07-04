@@ -85,7 +85,7 @@ uint32_t gps_millis_offset = millis();
 RTC_DATA_ATTR uint32_t wakeCounter = 0;
 
 // The format_buffer is overwritten by displayTime and unixTime
-char format_buf[100];
+char format_buf[FORMAT_BUF_SIZE];
 
 // GPS ISR and Serial1 callback variables
 uint32_t num_gps_reads = 0;
@@ -146,6 +146,8 @@ void setup(void) {
         wakeCounter = 0;
         sdBegin();
         startGPS();
+        //TODO get measurements to allign with 15 min intervals
+        //TODO wait for GPS to get fix?
     }
     wakeCounter += 1;
 
@@ -340,13 +342,13 @@ void sdWrite(sensorData *data)
 
   //Create string for new file name
   String fileName = "/Data/";
-  fileName += String(getTime().getUnix(), HEX);
-  fileName += ".txt";
+  if(GPS.fix) snprintf(format_buf, FORMAT_BUF_SIZE, "%x.txt", getTime().getUnix());
+  else snprintf(format_buf, FORMAT_BUF_SIZE, "f_%x.txt", millis());
 
   //Create and open a file
-  File dataFile = SD.open(fileName, FILE_WRITE);
+  File dataFile = SD.open(format_buf, FILE_WRITE);
   if(!dataFile) return;
-  Serial.printf("Writing %s: ", fileName.c_str());
+  Serial.printf("Writing %s: ", format_buf);
 
   dataFile.printf("%f, %f, %f", data->myLong, data->myLat, data->myAlt);
 
@@ -389,8 +391,8 @@ void sdBegin(void)
             "Cal Poly Tide Sensor\n"
             "Starting: %d\n\n"
             "Data File format:\n"
-            "Line   1: Latitude, Longitude, Altitude"
-            "Line 'n': UNIX Time, Distance (mm), External Temp (F), Humidity (%)",
+            "Line   1: Latitude, Longitude, Altitude\n"
+            "Line 'n': UNIX Time, Distance (mm), External Temp (F), Humidity (%)\n",
             unixTime(getTime()));
         dataFile.close();
 
