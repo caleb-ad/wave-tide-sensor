@@ -101,7 +101,7 @@ struct sensorData {
     int dist;
 };
 
-// every 10ms read from the GPS, when
+// every 10ms schedule a read from the GPS, when
 bool gps_polling_isr(void* arg) {
     num_gps_reads += 1;
 
@@ -195,8 +195,9 @@ void loop(void) {
     assert(data != nullptr);
     static uint32_t idx = 0;
 
-    for(int i=0; i < num_gps_reads; i++){
+    while(num_gps_reads > 0){
         GPS.read(); //if GPS.read() takes longer than the GPS polling frequency, execution may get stuck in this loop
+        num_gps_reads -= 1;
         if(GPS.newNMEAreceived()) {
             // a tricky thing here is if we print the NMEA sentence, or data
             // we end up not listening and catching other sentences!
@@ -206,7 +207,6 @@ void loop(void) {
             gps_millis_offset = millis() - GPS.milliseconds;
         }
     }
-    num_gps_reads = 0;
     if(measurement_request && (idx < LIST_SIZE)) {
         measurement_request = false;
         readData(data, idx);
