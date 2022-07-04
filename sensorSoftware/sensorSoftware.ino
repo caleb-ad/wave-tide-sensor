@@ -319,16 +319,15 @@ int32_t sonarMeasure() {
 //Should be called whenever sonar sensor has data ready
 void readData(sensorData *data, uint32_t idx)
 {
-    //Fill measurement and timestamp lists
-    //
     data->sonarList[idx] = sonarMeasure();
     data->timeList[idx] = getTime();
-    tempSensor.readBoth(data->tempExtList + idx, data->humExtList + idx);
+    data->tempExtList[idx] = celsius_to_fahrenheit(tempSensor.readTemperature());
+    data->humExtList[idx] = tempSensor.readHumidity();
 
     Serial.printf("%s %d  %f  %f  %f  %f  %f\n",
     unixTime(data->timeList[idx]),
     data->sonarList[idx],
-    data->tempExtList[idx],
+    celsius_to_fahrenheit(data->tempExtList[idx]),
     data->humExtList[idx],
     data->myLat,
     data->myLong,
