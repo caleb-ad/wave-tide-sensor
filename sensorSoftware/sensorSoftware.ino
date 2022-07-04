@@ -1,35 +1,3 @@
-//Winter 2022 Work
-//sensorSoftware_v6
-//Works on new prototypes which use this board:
-//https://www.amazon.com/dp/B0718T232Z/ref=sspa_dk_detail_0?psc=1&pd_rd_i=B0718T232Zp13NParams&spLa=ZW5jcnlwdGVkUXVhbGlmaWVyPUEzNVdES1U5SDI2MDYyJmVuY3J5cHRlZElkPUEwNzY3NzI0MVVPNjQzOFBCMDFXMyZlbmNyeXB0ZWRBZElkPUEwMjA4NDMxMk8zUVNWVlRSVEExTiZ3aWRnZXROYW1lPXNwX2RldGFpbDImYWN0aW9uPWNsaWNrUmVkaXJlY3QmZG9Ob3RMb2dDbGljaz10cnVl
-
-/* ---------------------
-   For SD card:
-   MOSI (DI) - 23
-   MISO (DO) - 19
-   CLK - 18
-   CS - 5
-   ---------------------
-   For GPS RTC:
-   RX - TX2 (17)
-   TX - RX2 (16)
-   EN - 27
-   Vin - V+
-   GND - GND
-   ---------------------
-   For Maxbotix
-   TX (5) - RX1 (14)
-   Start/Stop (4) - 33
-   10kOhm - 33 - GND
-   10kOhm - Temp (1) - GND
-   ---------------------
-   For Temp/Humidity:
-   Black - GND
-   Red - 15
-   Yellow - 22
-   Green - 21
-   ---------------------
-*/
 #include <Wire.h>
 #include <SPI.h>
 #include <SD.h>
@@ -109,7 +77,6 @@ void sonarDataReady(void) {
     measurement_request = true;
 }
 
-//-----------------------------------------------------------------------------------
 void setup(void) {
 
     // Clock cycle count when we begin measuring
@@ -220,7 +187,6 @@ void loop(void) {
     }
 }
 
-//-----------------------------------------------------------------------------------
 // Start GPS Clock
 void startGPS(void)
 {
