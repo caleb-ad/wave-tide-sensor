@@ -212,7 +212,7 @@ void loop(void) {
     };
 
     for(int i=0; i < num_gps_reads; i++){
-        GPS.read();
+        GPS.read(); //if GPS.read() takes longer than the GPS polling frequency, execution may get stuck in this loop
         if(GPS.newNMEAreceived()) {
             // a tricky thing here is if we print the NMEA sentence, or data
             // we end up not listening and catching other sentences!
@@ -340,8 +340,7 @@ void sdWrite(sensorData *data)
 
   //Create string for new file name
   String fileName = "/Data/";
-  //TODO remove HACK
-  fileName += String(getTime().getUnix() + (uint32_t)rtc_time_get(), HEX);
+  fileName += String(getTime().getUnix(), HEX);
   fileName += ".txt";
 
   //Create and open a file
@@ -359,6 +358,7 @@ void sdWrite(sensorData *data)
     {
       dataFile.close();
       Serial.println("Taking too long");
+      writeLog("data write timed out");
       return;
     }
 
@@ -380,16 +380,18 @@ void sdBegin(void)
     //Check if file exists and create one if not
     if (!SD.exists("/README.txt"))
     {
-        Serial.println("Creating lead file");
-
+        Serial.println("Creating README");
         File dataFile = SD.open("/README.txt", FILE_WRITE);
 
         //Create header with title, timestamp, and column names
-        dataFile.println("Cal Poly Tide Sensor");
-        dataFile.print("Starting: ");
-        dataFile.println(unixTime(getTime()));
-        dataFile.println();
-        dataFile.println("UNIX Time, Distance (mm), Internal Temp (F), External Temp (F), Humidity (%), Latitude, Longitude, Altitude");
+        dataFile.println("");
+        dataFile.printf(
+            "Cal Poly Tide Sensor\n"
+            "Starting: %d\n\n"
+            "Data File format:\n"
+            "Line   1: Latitude, Longitude, Altitude"
+            "Line 'n': UNIX Time, Distance (mm), External Temp (F), Humidity (%)",
+            unixTime(getTime()));
         dataFile.close();
 
         SD.mkdir("/Data");
