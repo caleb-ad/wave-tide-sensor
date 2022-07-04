@@ -35,6 +35,9 @@
 #include <SD.h>
 #include <driver\timer.h>
 #include <soc\rtc.h>
+#include <soc\soc.h>
+#include <hal\wdt_hal.h>
+#include <hal\wdt_types.h>
 #include "Adafruit_SHT31.h"
 #include "Adafruit_GPS.h"
 #include "UnixTime.h"
@@ -43,12 +46,12 @@
 //! Changed for debugging
 #define READ_TIME 5 //Length of time to measure (in seconds)
 #define READ_INTERVAL 15 //Measurement scheme (in seconds)
-#define EFF_HZ 5.64 //MB 7388 (10 meter sensor)
+#define MEASUREMENT_HZ 5.64 //MB 7388 (10 meter sensor)
 
 #define UNIX_TIME_ZONE 8
 
 //#define EFF_HZ 6.766 //MB 7388 (5 meter sensor)
-#define LIST_SIZE (uint32_t)(EFF_HZ*READ_TIME)
+#define LIST_SIZE (uint32_t)(MEASUREMENT_HZ*READ_TIME)
 #define secs_to_microsecs(__seconds) ((__seconds) * 1000000)
 #define celsius_to_fahrenheit(__celsius) ((__celsius) * 9.0 / 5.0 + 32.0)
 #define GMT_to_PST(__GMT) (((__GMT) + 16) % 24)
@@ -67,6 +70,7 @@
 #define GPS_TX GPIO_NUM_17
 #define GPS_CLOCK_EN GPIO_NUM_27
 #define GPS_ECHO false
+#define GPS_POLLING_HZ 100
 
 #define TEMP_SENSOR_ADDRESS 0x44
 #define TEMP_EN GPIO_NUM_15
@@ -77,14 +81,20 @@ const uint32_t rtc_slow_clk_hz = rtc_clk_slow_freq_get_hz();
 const uint32_t rtc_abp_clk_hz = rtc_clk_apb_freq_get();
 uint32_t gps_millis_offset = millis();
 
+wdt_hal_context_t group1_wdt {
+    wdt_inst_t::WDT_MWDT1,
+    &TIMERG1,
+};
+
 // Data which should be preserved between sleep/wake cycles
 RTC_DATA_ATTR uint32_t wakeCounter = 0;
 
 // The format_buffer is overwritten by displayTime and unixTime
 char format_buf[100];
 
-// ISR variables
-bool measurement_request = false;
+// Serial1 callback variables
+uint32_t num_gps_reads = 0;
+volatile bool measurement_request = false;
 
 //Objects to manage peripherals
 Adafruit_GPS GPS(&Serial2);
@@ -105,7 +115,8 @@ bool gps_polling_isr(void* arg) {
     // reading is slow (but apparently less than 1ms), so the interrupt watchdog timer must be disabled.
     // Which begs the question, should this really be done in an interrupt?
     // timer_group_intr_disable(timer_group_t::TIMER_GROUP_1, timer_intr_t::TIMER_INTR_WDT);
-    GPS.read();
+    // GPS.read();
+    num_gps_reads += 1;
     // timer_group_intr_enable(timer_group_t::TIMER_GROUP_1, timer_intr_t::TIMER_INTR_WDT);
 
     timer_group_clr_intr_status_in_isr(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0);
@@ -116,11 +127,26 @@ void sonarDataReady(void) {
     measurement_request = true;
 }
 
+void sonarError(hardwareSerial_error_t err) {
+    Serial.printf("Serial1 err: %d", err);
+}
+
 //-----------------------------------------------------------------------------------
 void setup(void) {
     // reading is slow (but apparently less than 1ms), so the interrupt watchdog timer must be disabled.
     // Which begs the question, should this really be done in an interrupt?
-    timer_group_intr_disable(timer_group_t::TIMER_GROUP_1, timer_intr_t::TIMER_INTR_WDT);
+    // timer_group_intr_disable(timer_group_t::TIMER_GROUP_1, timer_intr_t::TIMER_INTR_WDT);
+
+    // wdt_hal_write_protect_disable(&group1_wdt);
+    // // wdt_hal_deinit(&group1_wdt);
+    // wdt_hal_disable(&group1_wdt);
+
+    // wdt_hal_context_t group0_wdt {
+    //     wdt_inst_t::WDT_MWDT0,
+    //     &TIMERG0,
+    // };
+    // wdt_hal_write_protect_disable(&group0_wdt);
+    // wdt_hal_deinit(&group0_wdt);
 
     // Clock cycle count when we begin measuring
     clock_start = rtc_time_get();
@@ -131,12 +157,15 @@ void setup(void) {
     writeLog("Waking Up");
     writeLog("SD enabled");
 
-    //9600 bps for Maxbotix
     Serial.begin(115200); //Serial monitor
-    Serial.onReceive(sonarDataReady, false); // register callback
-    Serial.setRxTimeout(1); //!(is this correct?) call callback each time data is recievied
+
+    //9600 bps for Maxbotix
     Serial1.begin(9600, SERIAL_8N1, SONAR_RX, SONAR_TX); //Maxbotix
-    Serial2.begin(9600, SERIAL_8N1, GPS_RX, GPS_TX); //Clock
+    Serial1.onReceive(sonarDataReady, true); // register callback
+    Serial1.setRxTimeout(10);
+    Serial1.onReceiveError(sonarError);
+
+    // Serial2.begin(9600, SERIAL_8N1, GPS_RX, GPS_TX); //Clock
     writeLog("Serial Ports Enabled");
 
     //Run Setup, check SD file every 1000th wake cycle
@@ -150,13 +179,13 @@ void setup(void) {
     wakeCounter += 1;
 
     // configure timer to manage GPS polling
-    timer_config_t gps_polling_config;
-    gps_polling_config.alarm_en = timer_alarm_t::TIMER_ALARM_EN;
-    gps_polling_config.auto_reload = timer_autoreload_t::TIMER_AUTORELOAD_EN;
-    gps_polling_config.counter_dir = timer_count_dir_t::TIMER_COUNT_UP;
-    gps_polling_config.divider = 2; //should be in [2, 65536]
-    timer_init(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, &gps_polling_config);
-    timer_set_alarm_value(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, rtc_abp_clk_hz / (2 * 100)); // configure timer to count 10 millis
+    timer_config_t timer_polling_config;
+    timer_polling_config.alarm_en = timer_alarm_t::TIMER_ALARM_EN;
+    timer_polling_config.auto_reload = timer_autoreload_t::TIMER_AUTORELOAD_EN;
+    timer_polling_config.counter_dir = timer_count_dir_t::TIMER_COUNT_UP;
+    timer_polling_config.divider = 2; //should be in [2, 65536]
+    timer_init(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, &timer_polling_config);
+    timer_set_alarm_value(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, rtc_abp_clk_hz / (2 * GPS_POLLING_HZ)); // configure timer to count 10 millis
     timer_isr_callback_add(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, gps_polling_isr, nullptr, ESP_INTR_FLAG_LOWMED);
     timer_enable_intr(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0);
     timer_start(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0);
@@ -170,7 +199,7 @@ void setup(void) {
     pinMode(SONAR_EN, OUTPUT);
     digitalWrite(GPS_CLOCK_EN, HIGH); //Hold clock high
     digitalWrite(TEMP_EN, HIGH); //Hold high to supply power to temp sensor
-    digitalWrite(SONAR_EN, LOW); //Hold low to prevent measurements
+    digitalWrite(SONAR_EN, HIGH); //Hold high to begin measuring with sonar
     writeLog("Start/Stop Enabled");
 
     //Setup for temp/humidity
@@ -211,51 +240,27 @@ void loop(void) {
         GPS.altitude,
     };
 
-    //Clear LED
-    digitalWrite(LED_BUILTIN, LOW);
-    //Turn on Maxbotix
-    digitalWrite(SONAR_EN, HIGH);
-
-
-    if(GPS.newNMEAreceived()) {
-        // a tricky thing here is if we print the NMEA sentence, or data
-        // we end up not listening and catching other sentences!
-        // so be very wary if using OUTPUT_ALLDATA and trying to print out data
-        //Serial.println(GPS.lastNMEA());   // this also sets the newNMEAreceived() flag to false
-        GPS.parse(GPS.lastNMEA());  // this also sets the newNMEAreceived() flag to false
-        gps_millis_offset = millis() - GPS.milliseconds;
+    for(int i=0; i < num_gps_reads; i++){
+        GPS.read();
+        if(GPS.newNMEAreceived()) {
+            // a tricky thing here is if we print the NMEA sentence, or data
+            // we end up not listening and catching other sentences!
+            // so be very wary if using OUTPUT_ALLDATA and trying to print out data
+            //Serial.println(GPS.lastNMEA());   // this also sets the newNMEAreceived() flag to false
+            GPS.parse(GPS.lastNMEA());  // this also sets the newNMEAreceived() flag to false
+            gps_millis_offset = millis() - GPS.milliseconds;
+        }
     }
-    if(measurement_request && idx < LIST_SIZE) {
+    num_gps_reads = 0;
+    if(measurement_request && (idx < LIST_SIZE)) {
         measurement_request = false;
         readData(&data, idx);
         idx++;
     }
     else if(idx >= LIST_SIZE){
-        //Turn off Maxbotix
-        digitalWrite(SONAR_EN, LOW);
-
         //Write to SD card and serial monitor
-        writeLog("Done filling arrays");
         writeLog("Writing to SD card");
         sdWrite(&data);
-
-        //Print sleep time info
-        //TODO it seems that printf with strings and numbers fails, is this because the stack grows too large?
-        //* Why does the printf not work with both the str and the number?
-        Serial.printf("Going to sleep at %s\n", displayTime(getTime()));
-        Serial.printf("Sleeping for %lu secs\n", READ_INTERVAL - (rtc_time_get() - clock_start) / (uint64_t)rtc_slow_clk_hz);
-
-        //TODO log more informative message
-        writeLog(String("sleeping"));
-
-        //Turn everything off
-        digitalWrite(GPS_CLOCK_EN, LOW);
-        digitalWrite(TEMP_EN, LOW);
-        digitalWrite(SONAR_EN, LOW);
-        gpio_hold_en(GPS_CLOCK_EN); //Make sure clock is off
-        gpio_hold_en(TEMP_EN); //Make sure temp sensor is off
-        gpio_hold_en(SONAR_EN); //Make sure Maxbotix is off
-        gpio_deep_sleep_hold_en();
 
         //Free allocated data
         //This may not be neccesary because the chip SRAM resets after waking from deep sleep
@@ -264,12 +269,7 @@ void loop(void) {
         delete[] tempExtList;
         delete[] humExtList;
 
-        //Prepare and go into sleep
-        Serial.flush();
-        digitalWrite(LED_BUILTIN, LOW);
-        esp_sleep_enable_timer_wakeup(1000000 * READ_INTERVAL - 1000000 * (rtc_time_get() - clock_start) / rtc_slow_clk_hz);
-        esp_deep_sleep_start();
-        //Sleeps until woken, runs setup() again
+        goto_sleep();
     }
 }
 
@@ -312,12 +312,24 @@ char* unixTime(UnixTime now) {
 }
 
 //Get a reading from the sonar
+//negative readings imply an error
 int32_t sonarMeasure() {
     char inData[5] = {0}; //char array to read data into
 
-    //Maxbotix reports "Rxxxx", where xxxx is a 4 digit mm distance
-    if(!Serial1.find('R')) return -1;
+    Serial1.flush();
+    //a measurement is not available
+    if(Serial1.available() <= 5) return -1;
+    //Measurements begin with 'R'
+    while(Serial1.peek() != 'R') {
+        Serial1.read();
+        //Maxbotix reports "Rxxxx\L", where xxxx is a 4 digit mm distance, '\L' is carriage return
+        if(Serial1.available() <= 5) return -2;
+    }
+    Serial1.read(); //discard R
+
     Serial1.readBytes(inData, 4);
+    if(Serial1.read() != 13) return -3; //discard carriage return
+
     uint result = atoi(inData);
 
     //Turn on LED if measuring properly
@@ -337,20 +349,18 @@ void readData(sensorData *data, uint32_t idx)
 {
     //Fill measurement and timestamp lists
     //
-    while(Serial1.available()) {
-        data->sonarList[idx] = sonarMeasure();
-        data->timeList[idx] = getTime();
-        tempSensor.readBoth(data->tempExtList + idx, data->humExtList + idx);
+    data->sonarList[idx] = sonarMeasure();
+    data->timeList[idx] = getTime();
+    tempSensor.readBoth(data->tempExtList + idx, data->humExtList + idx);
 
-        Serial.printf("%s %d  %f  %f  %f  %f  %f\n",
-        unixTime(data->timeList[idx]),
-        data->sonarList[idx],
-        data->tempExtList[idx],
-        data->humExtList[idx],
-        data->myLat,
-        data->myLong,
-        data->myAlt);
-    }
+    Serial.printf("%s %d  %f  %f  %f  %f  %f\n",
+    unixTime(data->timeList[idx]),
+    data->sonarList[idx],
+    data->tempExtList[idx],
+    data->humExtList[idx],
+    data->myLat,
+    data->myLong,
+    data->myAlt);
 }
 
 //Write the list to the sd card
@@ -414,6 +424,33 @@ void sdBegin(void)
 
         SD.mkdir("/Data");
     }
+}
+
+//Powers down all peripherals, Sleeps until woken after set interval, runs setup() again
+void goto_sleep(void) {
+    //Print sleep time info
+    //TODO it seems that printf with strings and numbers fails, is this because the stack grows too large?
+    //* Why does the printf not work with both the str and the number?
+    Serial.printf("Going to sleep at %s\n", displayTime(getTime()));
+    Serial.printf("Sleeping for %lu secs\n", READ_INTERVAL - (rtc_time_get() - clock_start) / (uint64_t)rtc_slow_clk_hz);
+
+    //TODO log more informative message
+    writeLog(String("sleeping"));
+
+    //Turn everything off
+    digitalWrite(LED_BUILTIN, LOW);
+    digitalWrite(GPS_CLOCK_EN, LOW);
+    digitalWrite(TEMP_EN, LOW);
+    digitalWrite(SONAR_EN, LOW);
+    gpio_hold_en(GPS_CLOCK_EN); //Make sure clock is off
+    gpio_hold_en(TEMP_EN); //Make sure temp sensor is off
+    gpio_hold_en(SONAR_EN); //Make sure Maxbotix is off
+    gpio_deep_sleep_hold_en();
+
+    //Prepare and go into sleep
+    Serial.flush();
+    esp_sleep_enable_timer_wakeup(1000000 * READ_INTERVAL - 1000000 * (rtc_time_get() - clock_start) / rtc_slow_clk_hz);
+    esp_deep_sleep_start();
 }
 
 void writeLog(String message)
