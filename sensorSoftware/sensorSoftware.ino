@@ -287,19 +287,18 @@ char* unixTime(UnixTime now) {
 int32_t sonarMeasure() {
     char inData[5] = {0}; //char array to read data into
 
-    Serial1.flush();
-    //a measurement is not available
+    //Maxbotix reports "Rxxxx\L", where xxxx is a 4 digit mm distance, '\L' is carriage return
+    //a measurement is 6 bytes
     if(Serial1.available() <= 5) return -1;
     //Measurements begin with 'R'
     while(Serial1.peek() != 'R') {
         Serial1.read();
-        //Maxbotix reports "Rxxxx\L", where xxxx is a 4 digit mm distance, '\L' is carriage return
         if(Serial1.available() <= 5) return -2;
     }
     Serial1.read(); //discard R
 
     Serial1.readBytes(inData, 4);
-    if(Serial1.read() != 13) return -3; //discard carriage return
+    if(Serial1.read() != 13) return -3; //check and discard carriage return
 
     uint result = atoi(inData);
 
