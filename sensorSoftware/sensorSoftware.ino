@@ -44,8 +44,8 @@
 
 
 //! Changed for debugging
-#define READ_TIME 5 //Length of time to measure (in seconds)
-#define READ_INTERVAL 15 //Measurement scheme (in seconds)
+#define READ_TIME 2*60 //Length of time to measure (in seconds)
+#define READ_INTERVAL 13*60 //Measurement period (in seconds)
 #define MEASUREMENT_HZ 5.64 //MB 7388 (10 meter sensor)
 
 #define UNIX_TIME_ZONE 8
@@ -306,7 +306,7 @@ void readData(sensorData *data, uint32_t idx)
     Serial.printf("%s %d  %f  %f  %f  %f  %f\n",
     unixTime(data[idx].time),
     data[idx].dist,
-    celsius_to_fahrenheit(data[idx].tempExt),
+    data[idx].tempExt,
     data[idx].humExt,
     GPS.latitude,
     GPS.longitude,
