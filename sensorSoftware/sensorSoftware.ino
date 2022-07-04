@@ -57,7 +57,6 @@
 #define GMT_to_PST(__GMT) (((__GMT) + 16) % 24)
 #define FORMAT_BUF_SIZE 100
 
-
 #define SD_CS GPIO_NUM_5 //SD card chip select pin
 
 #define SONAR_RX GPIO_NUM_14 // Sonar sensor receive pin
@@ -96,13 +95,10 @@ Adafruit_GPS GPS(&Serial2);
 Adafruit_SHT31 tempSensor = Adafruit_SHT31();
 
 struct sensorData {
-    int *sonarList;
-    UnixTime *timeList;
-    float *tempExtList;
-    float *humExtList;
-    float myLong;
-    float myLat;
-    float myAlt;
+    UnixTime time;
+    float tempExt;
+    float humExt;
+    int dist;
 };
 
 // every 10ms read from the GPS, when
@@ -192,26 +188,12 @@ void setup(void) {
 
 void loop(void) {
     //TODO way to prevent reallocation of memory every sleep/wake cycle
-    //C++ exceptions are disabled by default, check for errors
-    static int* sonarList = new(std::nothrow) int[LIST_SIZE];
-    static UnixTime* timeList = (UnixTime*)(operator new[] (sizeof(UnixTime) * LIST_SIZE, std::nothrow));
-    static float* tempExtList = new(std::nothrow) float[LIST_SIZE];
-    static float* humExtList = new(std::nothrow) float[LIST_SIZE];
+    //Everything should be overwritten before it is read, so there is no need to initialize the data
+    static sensorData* data = (sensorData*)(operator new[](sizeof(sensorData) * LIST_SIZE, std::nothrow));
+    //C++ exceptions are disabled by default, use std::nothrow and assert non-null
     //failed assertions cause a Fatal error
-    assert(sonarList != nullptr);
-    assert(timeList != nullptr);
-    assert(tempExtList != nullptr);
-    assert(humExtList != nullptr);
+    assert(data != nullptr);
     static uint32_t idx = 0;
-    static sensorData data = {
-        sonarList,
-        timeList,
-        tempExtList,
-        humExtList,
-        GPS.longitude,
-        GPS.latitude,
-        GPS.altitude,
-    };
 
     for(int i=0; i < num_gps_reads; i++){
         GPS.read(); //if GPS.read() takes longer than the GPS polling frequency, execution may get stuck in this loop
@@ -227,20 +209,17 @@ void loop(void) {
     num_gps_reads = 0;
     if(measurement_request && (idx < LIST_SIZE)) {
         measurement_request = false;
-        readData(&data, idx);
+        readData(data, idx);
         idx++;
     }
     else if(idx >= LIST_SIZE){
         //Write to SD card and serial monitor
         writeLog("Writing to SD card");
-        sdWrite(&data);
+        sdWrite(data);
 
         //Free allocated data
         //This may not be neccesary because the chip SRAM resets after waking from deep sleep
-        delete[] sonarList;
-        delete[] timeList;
-        delete[] tempExtList;
-        delete[] humExtList;
+        delete[] data;
 
         goto_sleep();
     }
@@ -319,19 +298,19 @@ int32_t sonarMeasure() {
 //Should be called whenever sonar sensor has data ready
 void readData(sensorData *data, uint32_t idx)
 {
-    data->sonarList[idx] = sonarMeasure();
-    data->timeList[idx] = getTime();
-    data->tempExtList[idx] = celsius_to_fahrenheit(tempSensor.readTemperature());
-    data->humExtList[idx] = tempSensor.readHumidity();
+    data[idx].dist = sonarMeasure();
+    data[idx].time = getTime();
+    data[idx].tempExt = celsius_to_fahrenheit(tempSensor.readTemperature());
+    data[idx].humExt = tempSensor.readHumidity();
 
     Serial.printf("%s %d  %f  %f  %f  %f  %f\n",
-    unixTime(data->timeList[idx]),
-    data->sonarList[idx],
-    celsius_to_fahrenheit(data->tempExtList[idx]),
-    data->humExtList[idx],
-    data->myLat,
-    data->myLong,
-    data->myAlt);
+    unixTime(data[idx].time),
+    data[idx].dist,
+    celsius_to_fahrenheit(data[idx].tempExt),
+    data[idx].humExt,
+    GPS.latitude,
+    GPS.longitude,
+    GPS.altitude);
 }
 
 //Write the list to the sd card
@@ -349,7 +328,7 @@ void sdWrite(sensorData *data)
   if(!dataFile) return;
   Serial.printf("Writing %s: ", format_buf);
 
-  dataFile.printf("%f, %f, %f", data->myLong, data->myLat, data->myAlt);
+  dataFile.printf("%f, %f, %f", GPS.longitude, GPS.latitude, GPS.altitude);
 
   //Iterate over entire list
   for (int i = 0; i < LIST_SIZE; i++)
@@ -364,10 +343,10 @@ void sdWrite(sensorData *data)
     }
 
     dataFile.printf("%s, %d, %f, %f\n",
-        dataFile.print(unixTime(data->timeList[i])),
-        data->sonarList[i],
-        data->tempExtList[i],
-        data->humExtList[i]);
+        unixTime(data[i].time),
+        data[i].dist,
+        data[i].tempExt,
+        data[i].humExt);
   }
 
   //Close file
