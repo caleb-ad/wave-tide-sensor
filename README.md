@@ -1,5 +1,4 @@
-# wave-tide-sensor
-Cal Poly Wave/Tide Sensor
+# Cal Poly Wave/Tide Sensor
 SURP 2022
 
 ## Peripheral Information
