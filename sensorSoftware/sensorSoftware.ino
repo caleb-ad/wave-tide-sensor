@@ -8,8 +8,8 @@
 #include "UnixTime.h"
 
 //! Changed for debugging
-#define READ_TIME 2 * 60 //Length of time to measure (in seconds)
-#define READ_INTERVAL 13 * 60 //Measurement period (in seconds)
+#define READ_TIME 2 //Length of time to measure (in seconds)
+#define READ_INTERVAL 13 //Measurement period (in seconds)
 #define MEASUREMENT_HZ 5.64 //MB 7388 (10 meter sensor)
 
 #define UNIX_TIME_ZONE 8
@@ -280,16 +280,15 @@ void sdWrite(sensorData *data)
   long start = millis();
 
   //Create string for new file name
-  String fileName = "/Data/";
-  if(GPS.fix) snprintf(format_buf, FORMAT_BUF_SIZE, "%x.txt", getTime().getUnix());
-  else snprintf(format_buf, FORMAT_BUF_SIZE, "f_%x.txt", millis());
+  if(GPS.fix) snprintf(format_buf, FORMAT_BUF_SIZE, "/Data/%x.txt", getTime().getUnix());
+  else snprintf(format_buf, FORMAT_BUF_SIZE, "/Data/%x_%x.txt", wakeCounter, millis());
 
   //Create and open a file
-  File dataFile = SD.open(format_buf, FILE_WRITE);
+  File dataFile = SD.open(format_buf, FILE_WRITE, true);
   if(!dataFile) return;
   Serial.printf("Writing %s: ", format_buf);
 
-  dataFile.printf("%f, %f, %f", GPS.longitude, GPS.latitude, GPS.altitude);
+  dataFile.printf("%f, %f, %f\n", GPS.longitude, GPS.latitude, GPS.altitude);
 
   //Iterate over entire list
   for (int i = 0; i < LIST_SIZE; i++)
