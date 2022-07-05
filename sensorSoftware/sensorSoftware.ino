@@ -280,7 +280,7 @@ void sdWrite(sensorData *data)
   long start = millis();
 
   //Create string for new file name
-  if(GPS.fix) snprintf(format_buf, FORMAT_BUF_SIZE, "/Data/%x.txt", getTime().getUnix());
+  if(GPS.fix) snprintf(format_buf, FORMAT_BUF_SIZE, "/Data/%s.txt", displayTime(getTime()));
   else snprintf(format_buf, FORMAT_BUF_SIZE, "/Data/%x_%x.txt", wakeCounter, millis());
 
   //Create and open a file
