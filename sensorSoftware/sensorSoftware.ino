@@ -157,6 +157,7 @@ void loop(void) {
     assert(data != nullptr);
     static uint32_t idx = 0;
 
+
     while(num_gps_reads > 0){
         GPS.read(); //if GPS.read() takes longer than the GPS polling frequency, execution may get stuck in this loop
         num_gps_reads -= 1;
@@ -171,7 +172,7 @@ void loop(void) {
     }
     if(measurement_request && (idx < LIST_SIZE)) {
         measurement_request = false;
-        readData(data, idx);
+        readData(data[idx]);
         idx++;
     }
     else if(idx >= LIST_SIZE){
@@ -213,6 +214,7 @@ UnixTime getTime(void)
     return stamp;
 }
 
+//*Functions which use 'format_buf'*/
 //TODO the current way unixTime and displayTime is probably inefficiant because of nested printf
 char* displayTime(UnixTime now) {
     snprintf(format_buf, FORMAT_BUF_SIZE, "%02d:%02d:%02d.%03d", now.hour, now.minute, now.second, (millis() - gps_millis_offset)%1000);
@@ -222,6 +224,17 @@ char* displayTime(UnixTime now) {
 char* unixTime(UnixTime now) {
     snprintf(format_buf, FORMAT_BUF_SIZE, "%d.%03d", now.getUnix(), (millis() - gps_millis_offset)%1000);
     return format_buf;
+}
+//*End: Functions which use 'format_buf'*/
+
+// return signed latitude with the convention that north of the equator is positve
+inline nmea_float_t latitude_signed(Adafruit_GPS& gps) {
+    return (gps.lat == 'N') ? gps.latitude : -1.0 * gps.latitude;
+}
+
+//return signed longitude with the convention that east of the prime meridian is positive
+inline nmea_float_t longitude_signed(Adafruit_GPS& gps) {
+    return (gps.lon == 'W') ? gps.longitude : -1.0 * gps.longitude;
 }
 
 //Get a reading from the sonar
@@ -257,20 +270,21 @@ int32_t sonarMeasure() {
 
 //Fill time, temp, and measurement arrays
 //Should be called whenever sonar sensor has data ready
-void readData(sensorData *data, uint32_t idx)
+//TODO GPS negative/postive hemisphere information
+void readData(sensorData& data)
 {
-    data[idx].dist = sonarMeasure();
-    data[idx].time = getTime();
-    data[idx].tempExt = celsius_to_fahrenheit(tempSensor.readTemperature());
-    data[idx].humExt = tempSensor.readHumidity();
+    data.dist = sonarMeasure();
+    data.time = getTime();
+    data.tempExt = celsius_to_fahrenheit(tempSensor.readTemperature());
+    data.humExt = tempSensor.readHumidity();
 
     Serial.printf("%s %d  %f  %f  %f  %f  %f\n",
-    unixTime(data[idx].time),
-    data[idx].dist,
-    data[idx].tempExt,
-    data[idx].humExt,
-    GPS.latitude,
-    GPS.longitude,
+    unixTime(data.time),
+    data.dist,
+    data.tempExt,
+    data.humExt,
+    latitude_signed(GPS),
+    longitude_signed(GPS),
     GPS.altitude);
 }
 
@@ -288,7 +302,7 @@ void sdWrite(sensorData *data)
   if(!dataFile) return;
   Serial.printf("Writing %s: ", format_buf);
 
-  dataFile.printf("%f, %f, %f\n", GPS.longitude, GPS.latitude, GPS.altitude);
+  dataFile.printf("%f, %f, %f\n", latitude_signed(GPS), longitude_signed(GPS), GPS.altitude);
 
   //Iterate over entire list
   for (int i = 0; i < LIST_SIZE; i++)
@@ -314,7 +328,6 @@ void sdWrite(sensorData *data)
 }
 
 //Check or create header file
-//TODO use printf to simplify
 void sdBegin(void)
 {
     //Check if file exists and create one if not
