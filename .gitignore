@@ -2,6 +2,7 @@ Reference/
 sensorSoftware_v1.ino
 .vscode/c_cpp_properties.json
 .vscode/tasks.json
+.vscode/settings.json
 output/
 LevelSenseLite.ino
 tests/
