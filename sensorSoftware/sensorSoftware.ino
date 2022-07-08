@@ -141,8 +141,6 @@ void setup(void) {
     pinMode(LED_BUILTIN, OUTPUT);
     writeLog("LEDs enabled");
 
-    writeLog("Startup concluded");
-
     Serial.println();
     Serial.print("Starting: ");
     Serial.println(displayTime(getTime()));
@@ -360,7 +358,7 @@ void goto_sleep(void) {
     Serial.printf("Sleeping for %lu secs\n", READ_INTERVAL - (rtc_time_get() - clock_start) / (uint64_t)rtc_slow_clk_hz);
 
     //TODO log more informative message
-    writeLog(String("sleeping"));
+    writeLog("sleeping");
 
     //Turn everything off
     digitalWrite(LED_BUILTIN, LOW);
@@ -378,7 +376,7 @@ void goto_sleep(void) {
     esp_deep_sleep_start();
 }
 
-void writeLog(String message)
+void writeLog(const char* message)
 {
     //Open log file and write to it
     File logFile = SD.open("/logFile.txt", FILE_WRITE);
