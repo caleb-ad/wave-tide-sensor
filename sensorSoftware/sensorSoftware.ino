@@ -335,7 +335,7 @@ void sdBegin(void)
         dataFile.println("");
         dataFile.printf(
             "Cal Poly Tide Sensor\n"
-            "Starting: %d\n\n"
+            "https://github.com/caleb-ad/wave-tide-sensor\n\n"
             "Data File format:\n"
             "Line   1: Latitude, Longitude, Altitude\n"
             "Line 'n': UNIX Time, Distance (mm), External Temp (F), Humidity (%)\n",
@@ -369,6 +369,7 @@ void goto_sleep(void) {
 
     //Prepare and go into sleep
     Serial.flush();
+    //Measurements occurr 'READ_INTERVAL' apart, sleep for the remainder of that time
     esp_sleep_enable_timer_wakeup(1000000 * READ_INTERVAL - 1000000 * (rtc_time_get() - clock_start) / rtc_slow_clk_hz);
     esp_deep_sleep_start();
 }
