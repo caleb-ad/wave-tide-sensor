@@ -8,11 +8,11 @@
 #include "UnixTime.h"
 
 //! Changed for debugging
-#define READ_TIME 30 //Length of time to measure (in seconds)
-#define READ_INTERVAL 60 //Measurement period (in seconds)
+#define READ_TIME 3 * 60 //Length of time to measure (in seconds)
+#define READ_INTERVAL 12 * 60 //Measurement period (in seconds)
 #define MEASUREMENT_HZ 5.64 //MB 7388 (10 meter sensor)
 
-#define UNIX_TIME_ZONE -7
+#define UNIX_TIME_ZONE 0
 
 //#define EFF_HZ 6.766 //MB 7388 (5 meter sensor)
 #define LIST_SIZE (uint32_t)((MEASUREMENT_HZ)*(READ_TIME))
@@ -224,13 +224,13 @@ char* unixTime(UnixTime now) {
 //*End: Functions which use 'format_buf'*/
 
 // return signed latitude with the convention that north of the equator is positve
-inline nmea_float_t latitude_signed(Adafruit_GPS &gps) {
+inline float latitude_signed(Adafruit_GPS &gps) {
     return (gps.lat == 'N') ? gps.latitude : -1.0 * gps.latitude;
 }
 
 //return signed longitude with the convention that east of the prime meridian is positive
-inline nmea_float_t longitude_signed(Adafruit_GPS &gps) {
-    return (gps.lon == 'W') ? gps.longitude : -1.0 * gps.longitude;
+inline float longitude_signed(Adafruit_GPS &gps) {
+    return (gps.lon == 'E') ? gps.longitude : -1.0 * gps.longitude;
 }
 
 //Get a reading from the sonar
