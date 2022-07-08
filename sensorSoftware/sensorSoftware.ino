@@ -157,7 +157,6 @@ void loop(void) {
     assert(data != nullptr);
     static uint32_t idx = 0;
 
-
     while(num_gps_reads > 0){
         GPS.read(); //if GPS.read() takes longer than the GPS polling frequency, execution may get stuck in this loop
         num_gps_reads -= 1;
@@ -209,12 +208,12 @@ void startGPS(void)
 UnixTime getTime(void)
 {
     UnixTime stamp(UNIX_TIME_ZONE);
-    stamp.setDateTime(GPS.year + 2000, GPS.month, GPS.day, GPS.hour, GPS.minute, GPS.seconds);
+    stamp.setDateTime(2000 + GPS.year, GPS.month, GPS.day, GPS.hour, GPS.minute, GPS.seconds);
     return stamp;
 }
 
 //*Functions which use 'format_buf'*/
-//TODO the current way unixTime and displayTime is probably inefficiant because of nested printf
+//human readable time, in PST
 char* displayTime(UnixTime now) {
     snprintf(format_buf, FORMAT_BUF_SIZE, "%02d:%02d:%02d.%03d", GMT_to_PST(now.hour), now.minute, now.second, (millis() - gps_millis_offset)%1000);
     return format_buf;
