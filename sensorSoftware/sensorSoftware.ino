@@ -12,7 +12,6 @@
 #define READ_INTERVAL 12 * 60 //Measurement period (in seconds)
 #define MEASUREMENT_HZ 5.64 //MB 7388 (10 meter sensor)
 
-#define UNIX_TIME_ZONE 0
 
 //#define EFF_HZ 6.766 //MB 7388 (5 meter sensor)
 #define LIST_SIZE (uint32_t)((MEASUREMENT_HZ)*(READ_TIME))
@@ -26,14 +25,12 @@
 #define SONAR_RX GPIO_NUM_14 // Sonar sensor receive pin
 #define SONAR_TX GPIO_NUM_32 // Sonar sensor transmit pin
 #define SONAR_EN GPIO_NUM_33 //Sonar measurements are disabled when this pin is pulled low
-#define SONAR_MEASURE_TIMEOUT 100 //The number of milliseconds to attempt to get a sonar measure before timing out
 
-#define GPS_MIN_TIME 100
 #define GPS_RX GPIO_NUM_16
 #define GPS_TX GPIO_NUM_17
 #define GPS_CLOCK_EN GPIO_NUM_27
-#define GPS_ECHO false
 #define GPS_POLLING_HZ 100
+#define GPS_DIFF_FROM_GMT 0
 
 #define TEMP_SENSOR_ADDRESS 0x44
 #define TEMP_EN GPIO_NUM_15
@@ -205,7 +202,7 @@ void startGPS(void)
 // Return a current time_stamp
 UnixTime getTime(void)
 {
-    UnixTime stamp(UNIX_TIME_ZONE);
+    UnixTime stamp(GPS_DIFF_FROM_GMT);
     stamp.setDateTime(2000 + GPS.year, GPS.month, GPS.day, GPS.hour, GPS.minute, GPS.seconds);
     return stamp;
 }
