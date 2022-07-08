@@ -8,17 +8,17 @@
 #include "UnixTime.h"
 
 //! Changed for debugging
-#define READ_TIME 2 //Length of time to measure (in seconds)
-#define READ_INTERVAL 13 //Measurement period (in seconds)
+#define READ_TIME 30 //Length of time to measure (in seconds)
+#define READ_INTERVAL 60 //Measurement period (in seconds)
 #define MEASUREMENT_HZ 5.64 //MB 7388 (10 meter sensor)
 
-#define UNIX_TIME_ZONE 8
+#define UNIX_TIME_ZONE -7
 
 //#define EFF_HZ 6.766 //MB 7388 (5 meter sensor)
-#define LIST_SIZE (uint32_t)(MEASUREMENT_HZ*READ_TIME)
+#define LIST_SIZE (uint32_t)((MEASUREMENT_HZ)*(READ_TIME))
 #define secs_to_microsecs(__seconds) ((__seconds) * 1000000)
 #define celsius_to_fahrenheit(__celsius) ((__celsius) * 9.0 / 5.0 + 32.0)
-#define GMT_to_PST(__GMT) (((__GMT) + 16) % 24)
+#define GMT_to_PST(__GMT) (((__GMT) + 17) % 24)
 #define FORMAT_BUF_SIZE 100
 
 #define SD_CS GPIO_NUM_5 //SD card chip select pin
@@ -210,14 +210,13 @@ UnixTime getTime(void)
 {
     UnixTime stamp(UNIX_TIME_ZONE);
     stamp.setDateTime(GPS.year + 2000, GPS.month, GPS.day, GPS.hour, GPS.minute, GPS.seconds);
-    // unix += 10800; // 3 hrs
     return stamp;
 }
 
 //*Functions which use 'format_buf'*/
 //TODO the current way unixTime and displayTime is probably inefficiant because of nested printf
 char* displayTime(UnixTime now) {
-    snprintf(format_buf, FORMAT_BUF_SIZE, "%02d:%02d:%02d.%03d", now.hour, now.minute, now.second, (millis() - gps_millis_offset)%1000);
+    snprintf(format_buf, FORMAT_BUF_SIZE, "%02d:%02d:%02d.%03d", GMT_to_PST(now.hour), now.minute, now.second, (millis() - gps_millis_offset)%1000);
     return format_buf;
 }
 
@@ -228,12 +227,12 @@ char* unixTime(UnixTime now) {
 //*End: Functions which use 'format_buf'*/
 
 // return signed latitude with the convention that north of the equator is positve
-inline nmea_float_t latitude_signed(Adafruit_GPS& gps) {
+inline nmea_float_t latitude_signed(Adafruit_GPS &gps) {
     return (gps.lat == 'N') ? gps.latitude : -1.0 * gps.latitude;
 }
 
 //return signed longitude with the convention that east of the prime meridian is positive
-inline nmea_float_t longitude_signed(Adafruit_GPS& gps) {
+inline nmea_float_t longitude_signed(Adafruit_GPS &gps) {
     return (gps.lon == 'W') ? gps.longitude : -1.0 * gps.longitude;
 }
 
@@ -271,7 +270,7 @@ int32_t sonarMeasure() {
 //Fill time, temp, and measurement arrays
 //Should be called whenever sonar sensor has data ready
 //TODO GPS negative/postive hemisphere information
-void readData(sensorData& data)
+void readData(sensorData &data)
 {
     data.dist = sonarMeasure();
     data.time = getTime();
@@ -294,8 +293,10 @@ void sdWrite(sensorData *data)
   long start = millis();
 
   //Create string for new file name
-  if(GPS.fix) snprintf(format_buf, FORMAT_BUF_SIZE, "/Data/%s.txt", displayTime(getTime()));
-  else snprintf(format_buf, FORMAT_BUF_SIZE, "/Data/%x_%x.txt", wakeCounter, millis());
+  //if the gps has updated its time in the last read cycle use that time to name the file
+  //filenames are at most 8 characters + 6("/Data/") + 4(".txt") + null terminator = 19
+  if(GPS.fixquality >= 1) snprintf(format_buf, 19 , "/Data/%x.txt", getTime().getUnix());
+  else snprintf(format_buf, 19, "/Data/%x_%x.txt", wakeCounter, millis());
 
   //Create and open a file
   File dataFile = SD.open(format_buf, FILE_WRITE, true);
@@ -384,6 +385,6 @@ void writeLog(String message)
     File logFile = SD.open("/logFile.txt", FILE_WRITE);
     if(!logFile) return;
     //logFile.seek(logFile.size());
-    logFile.printf("%s: %s\n", unixTime(getTime()), message);
+    logFile.printf("%s: %s\n", displayTime(getTime()), message);
     logFile.close();
 }
