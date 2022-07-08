@@ -384,6 +384,6 @@ void writeLog(String message)
     File logFile = SD.open("/logFile.txt", FILE_WRITE);
     if(!logFile) return;
     //logFile.seek(logFile.size());
-    logFile.printf("%s: %s\n", displayTime(getTime()), message);
+    logFile.printf("%d/%d/20%d, %s: %s\n", GPS.month, GPS.day, GPS.year, displayTime(getTime()), message);
     logFile.close();
 }
