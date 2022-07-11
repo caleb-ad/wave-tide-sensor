@@ -8,8 +8,8 @@
 #include "UnixTime.h"
 
 //! Changed for debugging
-#define READ_TIME 3 * 60 //Length of time to measure (in seconds)
-#define READ_INTERVAL 12 * 60 //Measurement period (in seconds)
+#define READ_TIME 3  //Length of time to measure (in seconds)
+#define READ_INTERVAL 12  //Measurement period (in seconds)
 #define MEASUREMENT_HZ 5.64 //MB 7388 (10 meter sensor)
 
 
