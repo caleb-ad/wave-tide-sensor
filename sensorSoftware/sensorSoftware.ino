@@ -350,11 +350,9 @@ void sdBegin(void)
 //Powers down all peripherals, Sleeps until woken after set interval, runs setup() again
 void goto_sleep(void) {
     //Print sleep time info
-    //TODO it seems that printf with strings and numbers fails, is this because the stack grows too large?
     //* Why does the printf not work with both the str and the number?
     Serial.printf("Going to sleep at %s\n", displayTime(getTime()));
 
-    //TODO log more informative message
     writeLog("sleeping");
 
     //Turn everything off
