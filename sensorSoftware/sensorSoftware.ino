@@ -10,9 +10,8 @@
 //! Changed for debugging
 #define READ_TIME 60 * 2 //Length of time to measure (in seconds)
 // measurements will occurr on mulitples of this value after the hour
-#define MINUTE_ALLIGN 10 //minutes
+#define MINUTE_ALLIGN 4 //minutes
 #define MEASUREMENT_HZ 5.64 //MB 7388 (10 meter sensor)
-
 
 //#define EFF_HZ 6.766 //MB 7388 (5 meter sensor)
 #define LIST_SIZE (uint32_t)((MEASUREMENT_HZ)*(READ_TIME))
@@ -368,9 +367,12 @@ void goto_sleep(void) {
     //Prepare and go into sleep
     Serial.flush();
     //schedule to wake up so that the next measurements are centered at the next shceduled measurement time
+    uint64_t next_measurement = (MINUTE_ALLIGN - (GPS.minute % MINUTE_ALLIGN)) * (60 * 1000000) - (GPS.seconds * 1000000) - ((millis() - gps_millis_offset) % 1000) * 1000;
+    const uint64_t half_read_time = 1000000 * READ_TIME / 2;
     esp_sleep_enable_timer_wakeup(
-        (MINUTE_ALLIGN - (GPS.minute % MINUTE_ALLIGN)) * (60 * 1000000) - (GPS.seconds * 1000000) - (millis() - gps_millis_offset) * 1000 - //microsecs until next scheduled measurement
-        (1000000 * READ_TIME / 2)); // read time offset
+        next_measurement > half_read_time ?
+        next_measurement - half_read_time :
+        next_measurement + (MINUTE_ALLIGN * 60 * 1000000) - half_read_time );
     esp_deep_sleep_start();
 }
 
