@@ -8,8 +8,9 @@
 #include "UnixTime.h"
 
 //! Changed for debugging
-#define READ_TIME 3 * 60 //Length of time to measure (in seconds)
-#define READ_INTERVAL 12 * 60 //Measurement period (in seconds)
+#define READ_TIME 60 * 2 //Length of time to measure (in seconds)
+// measurements will occurr on mulitples of this value after the hour
+#define MINUTE_ALLIGN 10 //minutes
 #define MEASUREMENT_HZ 5.64 //MB 7388 (10 meter sensor)
 
 
@@ -352,7 +353,6 @@ void goto_sleep(void) {
     //TODO it seems that printf with strings and numbers fails, is this because the stack grows too large?
     //* Why does the printf not work with both the str and the number?
     Serial.printf("Going to sleep at %s\n", displayTime(getTime()));
-    Serial.printf("Sleeping for %lu secs\n", READ_INTERVAL - (rtc_time_get() - clock_start) / (uint64_t)rtc_slow_clk_hz);
 
     //TODO log more informative message
     writeLog("sleeping");
@@ -369,8 +369,10 @@ void goto_sleep(void) {
 
     //Prepare and go into sleep
     Serial.flush();
-    //Measurements occurr 'READ_INTERVAL' apart, sleep for the remainder of that time
-    esp_sleep_enable_timer_wakeup(1000000 * READ_INTERVAL - 1000000 * (rtc_time_get() - clock_start) / rtc_slow_clk_hz);
+    //schedule to wake up so that the next measurements are centered at the next shceduled measurement time
+    esp_sleep_enable_timer_wakeup(
+        (MINUTE_ALLIGN - (GPS.minute % MINUTE_ALLIGN)) * (60 * 1000000) - (GPS.seconds * 1000000) - (millis() - gps_millis_offset) * 1000 - //microsecs until next scheduled measurement
+        (1000000 * READ_TIME / 2)); // read time offset
     esp_deep_sleep_start();
 }
 
