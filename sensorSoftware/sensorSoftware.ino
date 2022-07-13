@@ -40,6 +40,7 @@ uint64_t clock_start; //the rtc clock cycle count that we begin measuring at
 const uint32_t rtc_slow_clk_hz = rtc_clk_slow_freq_get_hz();
 const uint32_t rtc_abp_clk_hz = rtc_clk_apb_freq_get();
 uint32_t gps_millis_offset = millis();
+const uint64_t half_read_time = 1000000 * READ_TIME / 2;
 
 // Data which should be preserved between sleep/wake cycles
 RTC_DATA_ATTR uint32_t wakeCounter = 0;
@@ -367,12 +368,19 @@ void goto_sleep(void) {
     //Prepare and go into sleep
     Serial.flush();
     //schedule to wake up so that the next measurements are centered at the next shceduled measurement time
-    uint64_t next_measurement = (MINUTE_ALLIGN - (GPS.minute % MINUTE_ALLIGN)) * (60 * 1000000) - (GPS.seconds * 1000000) - ((millis() - gps_millis_offset) % 1000) * 1000;
-    const uint64_t half_read_time = 1000000 * READ_TIME / 2;
-    esp_sleep_enable_timer_wakeup(
-        next_measurement > half_read_time ?
-        next_measurement - half_read_time :
-        next_measurement + (MINUTE_ALLIGN * 60 * 1000000) - half_read_time );
+    if(GPS.fixquality > 1) {
+        uint64_t next_measurement = (MINUTE_ALLIGN - (GPS.minute % MINUTE_ALLIGN)) * (60 * 1000000) - (GPS.seconds * 1000000) - ((millis() - gps_millis_offset) % 1000) * 1000;
+        esp_sleep_enable_timer_wakeup(
+            next_measurement > half_read_time ?
+            next_measurement - half_read_time :
+            next_measurement + (MINUTE_ALLIGN * 60 * 1000000) - half_read_time );
+    }
+    else { // when the GPS does not have a fix sleep for the correct interval, the GPS may have previously had a fix
+        //*This could overflow
+        esp_sleep_enable_timer_wakeup(1000000 * 60 * MINUTE_ALLIGN - (1000000 * (rtc_time_get() - clock_start)) / rtc_slow_clk_hz);
+    }
+
+
     esp_deep_sleep_start();
 }
 
