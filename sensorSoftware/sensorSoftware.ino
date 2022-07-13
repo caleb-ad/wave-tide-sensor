@@ -352,6 +352,7 @@ void goto_sleep(void) {
     //Print sleep time info
     //* Why does the printf not work with both the str and the number?
     Serial.printf("Going to sleep at %s\n", displayTime(getTime()));
+    if(GPS.fixquality > 1) Serial.println("GPS has fix");
 
     writeLog("sleeping");
 
