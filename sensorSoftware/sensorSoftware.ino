@@ -301,7 +301,7 @@ void sdWrite(sensorData *data)
   Serial.printf("Writing %s: ", format_buf);
 
   dataFile.printf("%f, %f, %f\n", latitude_signed(GPS), longitude_signed(GPS), GPS.altitude);
-  dataFile.printf("data from %s to %s", displayTime(data[0].time), displayTime(data[LIST_SIZE].time));
+  dataFile.printf("data from %s to %s\n", displayTime(data[0].time), displayTime(data[LIST_SIZE - 1].time));
 
   //Iterate over entire list
   for (int i = 0; i < LIST_SIZE; i++)
