@@ -1,7 +1,7 @@
 {
     "configuration": "PartitionScheme=default,FlashFreq=80,UploadSpeed=921600,DebugLevel=none",
     "board": "esp32:esp32:node32s",
-    "sketch": "sensorSoftware\\sensorSoftware.ino",
+    "sketch": "GPS_cold_start\\GPS_cold_start.ino",
     "programmer": "esp32:esptool",
     "output": "output",
     "port": "COM7"

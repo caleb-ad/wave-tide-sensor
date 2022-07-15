@@ -22,12 +22,12 @@ uint32_t gps_millis_offset = millis();
 char format_buf[FORMAT_BUF_SIZE];
 
 // Return a current time_stamp
-UnixTime getTime(void)
-{
-    UnixTime stamp(GPS_DIFF_FROM_GMT);
-    stamp.setDateTime(2000 + GPS.year, GPS.month, GPS.day, GPS.hour, GPS.minute, GPS.seconds);
-    return stamp;
-}
+// UnixTime getTime(void)
+// {
+//     UnixTime stamp(GPS_DIFF_FROM_GMT);
+//     stamp.setDateTime(2000 + GPS.year, GPS.month, GPS.day, GPS.hour, GPS.minute, GPS.seconds);
+//     return stamp;
+// }
 
 //human readable time, in PST
 char* displayTime(UnixTime now) {
@@ -37,7 +37,6 @@ char* displayTime(UnixTime now) {
 
 void setup(void) {
     Serial.begin(115200); //Serial monitor
-
     startGPS(); //uses Serial2
 
     //Turn on relevant pins
@@ -60,20 +59,22 @@ void setup(void) {
 }
 
 void loop(void) {
-    GPS.read(); //if GPS.read() takes longer than the GPS polling frequency, execution may get stuck in this loop
-    if(GPS.newNMEAreceived()) {
-        // a tricky thing here is if we print the NMEA sentence, or data
-        // we end up not listening and catching other sentences!
-        // so be very wary if using OUTPUT_ALLDATA and trying to print out data
-        //Serial.println(GPS.lastNMEA());   // this also sets the newNMEAreceived() flag to false
-        GPS.parse(GPS.lastNMEA());  // this also sets the newNMEAreceived() flag to false
-        gps_millis_offset = millis() - GPS.milliseconds;
-    }
+    // GPS.read(); //if GPS.read() takes longer than the GPS polling frequency, execution may get stuck in this loop
+    // if(GPS.newNMEAreceived()) {
+    //     // a tricky thing here is if we print the NMEA sentence, or data
+    //     // we end up not listening and catching other sentences!
+    //     // so be very wary if using OUTPUT_ALLDATA and trying to print out data
+    //     //Serial.println(GPS.lastNMEA());   // this also sets the newNMEAreceived() flag to false
+    //     GPS.parse(GPS.lastNMEA());  // this also sets the newNMEAreceived() flag to false
+    //     gps_millis_offset = millis() - GPS.milliseconds;
+    // }
 
-    if(GPS.fixquality > 1) digitalWrite(LED_BUILTIN, HIGH);
-    else digitalWrite(LED_BUILTIN, LOW);
+    // if(GPS.fixquality > 1) digitalWrite(LED_BUILTIN, HIGH);
+    // else digitalWrite(LED_BUILTIN, LOW);
 
-    Serial.printf("%d/%d/20%d, %s\n", GPS.month, GPS.day, GPS.year, displayTime(getTime()));
+    // Serial.printf("%d/%d/20%d, %s\n", GPS.month, GPS.day, GPS.year, displayTime(getTime()));
+    Serial2.readBytesUntil('\n', format_buf, FORMAT_BUF_SIZE);
+    Serial.write(format_buf, FORMAT_BUF_SIZE);
 }
 
 // Start GPS Clock
@@ -87,5 +88,5 @@ void startGPS(void)
   //GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCONLY);
 
   // Set the update rate
-  GPS.sendCommand(PMTK_SET_NMEA_UPDATE_10HZ);
+  GPS.sendCommand(PMTK_SET_NMEA_UPDATE_1HZ);
 }

@@ -356,7 +356,7 @@ void goto_sleep(void) {
     //Print sleep time info
     //* Why does the printf not work with both the str and the number?
     Serial.printf("Going to sleep at %s\n", displayTime(getTime()));
-    if(GPS.fixquality > 1) Serial.println("GPS has fix");
+    if(GPS.fixquality >= 1) Serial.println("GPS has fix");
 
     writeLog("sleeping");
 
@@ -373,7 +373,7 @@ void goto_sleep(void) {
     //Prepare and go into sleep
     Serial.flush();
     //schedule to wake up so that the next measurements are centered at the next shceduled measurement time
-    if(GPS.fixquality > 1) {
+    if(GPS.fixquality >= 1) {
         uint64_t next_measurement = (MINUTE_ALLIGN - (GPS.minute % MINUTE_ALLIGN)) * (60 * 1000000) - (GPS.seconds * 1000000) - ((millis() - gps_millis_offset) % 1000) * 1000;
         esp_sleep_enable_timer_wakeup(
             next_measurement > half_read_time ?
