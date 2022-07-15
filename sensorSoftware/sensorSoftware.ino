@@ -234,18 +234,16 @@ inline float longitude_signed(Adafruit_GPS &gps) {
 
 //Get a reading from the sonar
 //negative readings imply an error
-int32_t sonarMeasure() {
+int32_t sonarMeasure(void) {
     char inData[5] = {0}; //char array to read data into
 
     //Maxbotix reports "Rxxxx\L", where xxxx is a 4 digit mm distance, '\L' is carriage return
     //a measurement is 6 bytes
     if(Serial1.available() <= 5) return -1;
     //Measurements begin with 'R'
-    while(Serial1.peek() != 'R') {
-        Serial1.read();
+    while(Serial1.read() != 'R') {
         if(Serial1.available() <= 5) return -2;
     }
-    Serial1.read(); //discard R
 
     Serial1.readBytes(inData, 4);
     if(Serial1.read() != 13) return -3; //check and discard carriage return
