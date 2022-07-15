@@ -39,9 +39,9 @@
 
 // The RTC slow timer is driven by the RTC slow clock, typically 150kHz
 uint64_t clock_start; //the rtc clock cycle count that we begin measuring at
+uint32_t gps_millis_offset = millis();
 const uint32_t rtc_slow_clk_hz = rtc_clk_slow_freq_get_hz();
 const uint32_t rtc_abp_clk_hz = rtc_clk_apb_freq_get();
-uint32_t gps_millis_offset = millis();
 const uint64_t half_read_time = 1000000 * READ_TIME / 2;
 
 // Data which should be preserved between sleep/wake cycles
@@ -77,6 +77,8 @@ void sonarDataReady(void) {
 }
 
 void setup(void) {
+    // Assert that constants and defines are in valid state
+    assert(READ_TIME < MINUTE_ALLIGN * 60);
 
     // Clock cycle count when we begin measuring
     clock_start = rtc_time_get();
@@ -150,8 +152,9 @@ void loop(void) {
     static sensorData* data = (sensorData*)(operator new[](sizeof(sensorData) * LIST_SIZE, std::nothrow));
     //C++ exceptions are disabled by default, use std::nothrow and assert non-null
     //failed assertions cause a Fatal error
-    assert(data != nullptr);
     static uint32_t idx = 0;
+
+    assert(data != nullptr);
 
     while(num_gps_reads > 0){
         GPS.read(); //if GPS.read() takes longer than the GPS polling frequency, execution may get stuck in this loop
