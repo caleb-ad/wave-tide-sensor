@@ -329,18 +329,19 @@ void sdBegin(void)
     if (!SD.exists("/README.txt"))
     {
         Serial.println("Creating README");
-        File dataFile = SD.open("/README.txt", FILE_WRITE);
+        File read_me = SD.open("/README.txt", FILE_WRITE);
+        if(!read_me) return;
 
         //Create header with title, timestamp, and column names
-        dataFile.println("");
-        dataFile.printf(
+        read_me.println("");
+        read_me.printf(
             "Cal Poly Tide Sensor\n"
             "https://github.com/caleb-ad/wave-tide-sensor\n\n"
             "Data File format:\n"
             "Line   1: Latitude, Longitude, Altitude\n"
             "Line 'n': UNIX Time, Distance (mm), External Temp (F), Humidity (%)\n",
             unixTime(getTime()));
-        dataFile.close();
+        read_me.close();
 
         SD.mkdir("/Data");
     }
