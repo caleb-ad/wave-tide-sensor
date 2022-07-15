@@ -3,7 +3,7 @@ Reference/
 .vscode/tasks.json
 .vscode/settings.json
 output/
-util/*test.ino
+timer_test/
 
 LevelSenseLite.ino
 sensorSoftware_v1.ino
