@@ -381,7 +381,7 @@ void goto_sleep(void) {
     }
     else { // when the GPS does not have a fix sleep for the correct interval, the GPS may have previously had a fix
         //*This could overflow
-        esp_sleep_enable_timer_wakeup(1000000 * (60 * MINUTE_ALLIGN - READ_TIME / 2)  - (1000000 * (rtc_time_get() - clock_start)) / rtc_slow_clk_hz);
+        esp_sleep_enable_timer_wakeup(1000000 * 60 * MINUTE_ALLIGN  - (1000000 * (rtc_time_get() - clock_start)) / rtc_slow_clk_hz);
     }
 
 
