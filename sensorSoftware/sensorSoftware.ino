@@ -8,9 +8,11 @@
 #include "UnixTime.h"
 
 //! Changed for debugging
-#define READ_TIME 60 * 2 //Length of time to measure (in seconds)
+// values of 'READ_TIME' more than 10 minutes usually require too much memory
+#define READ_TIME 10 * 60//Length of time to measure (in seconds)
+
 // measurements will occurr on mulitples of this value after the hour
-#define MINUTE_ALLIGN 4 //minutes
+#define MINUTE_ALLIGN 10//minutes
 #define MEASUREMENT_HZ 5.64 //MB 7388 (10 meter sensor)
 
 //#define EFF_HZ 6.766 //MB 7388 (5 meter sensor)
@@ -92,7 +94,7 @@ void setup(void) {
     Serial1.begin(9600, SERIAL_8N1, SONAR_RX, SONAR_TX); //Maxbotix
     Serial1.onReceive(sonarDataReady, true); // register callback
     Serial1.setRxTimeout(10);
-    startGPS(); //uses Serial2
+    startGPS(GPS); //uses Serial2
     writeLog("Serial Ports Enabled");
 
     //Run Setup, check SD file every 1000th wake cycle
@@ -184,19 +186,19 @@ void loop(void) {
 }
 
 // Start GPS Clock
-void startGPS(void)
+void startGPS(Adafruit_GPS &gps)
 {
   // 9600 NMEA is the default baud rate for Adafruit MTK GPS's- some use 4800
-  GPS.begin(9600);
+  gps.begin(9600);
   writeLog("GPS Serial Enabled");
 
   // uncomment this line to turn on RMC (recommended minimum) and GGA (fix data) including altitude
-  GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCGGA);
-  //GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCONLY);
+  gps.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCGGA);
+  //gps.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCONLY);
   writeLog("Minimum Recommended Enabled");
 
   // Set the update rate
-  GPS.sendCommand(PMTK_SET_NMEA_UPDATE_10HZ);
+  gps.sendCommand(PMTK_SET_NMEA_UPDATE_10HZ);
   writeLog("GPS Frequency Enabled");
 }
 
@@ -209,6 +211,7 @@ UnixTime getTime(void)
 }
 
 //*Functions which use 'format_buf'*/
+
 //human readable time, in PST
 char* displayTime(UnixTime now) {
     snprintf(format_buf, FORMAT_BUF_SIZE, "%02d:%02d:%02d.%03d", GMT_to_PST(now.hour), now.minute, now.second, (millis() - gps_millis_offset)%1000);
@@ -391,6 +394,6 @@ void writeLog(const char* message)
     File logFile = SD.open("/logFile.txt", FILE_WRITE);
     if(!logFile) return;
     //logFile.seek(logFile.size());
-    logFile.printf("%d/%d/20%d, %s: %s\n", GPS.month, GPS.day, GPS.year, displayTime(getTime()), message);
+    logFile.printf("%d/%d/20%d, %s: %s\n, wake count: %d", GPS.month, GPS.day, GPS.year, displayTime(getTime()), message, wakeCounter);
     logFile.close();
 }
