@@ -68,7 +68,6 @@ struct sensorData {
 // every 10ms schedule a read from the GPS, when
 bool gps_polling_isr(void* arg) {
     num_gps_reads += 1;
-
     timer_group_clr_intr_status_in_isr(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0);
     return false;
 }
@@ -107,7 +106,6 @@ void setup(void) {
         //TODO wait for GPS to get fix?
     }
     wakeCounter += 1;
-
 
     // configure timer to manage GPS polling
     timer_config_t timer_polling_config;
