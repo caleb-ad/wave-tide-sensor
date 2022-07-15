@@ -301,6 +301,7 @@ void sdWrite(sensorData *data)
   Serial.printf("Writing %s: ", format_buf);
 
   dataFile.printf("%f, %f, %f\n", latitude_signed(GPS), longitude_signed(GPS), GPS.altitude);
+  dataFile.printf("data from %s to %s", displayTime(data[0].time), displayTime(data[LIST_SIZE].time));
 
   //Iterate over entire list
   for (int i = 0; i < LIST_SIZE; i++)
@@ -394,6 +395,6 @@ void writeLog(const char* message)
     File logFile = SD.open("/logFile.txt", FILE_WRITE);
     if(!logFile) return;
     //logFile.seek(logFile.size());
-    logFile.printf("%d/%d/20%d, %s: %s\n, wake count: %d", GPS.month, GPS.day, GPS.year, displayTime(getTime()), message, wakeCounter);
+    logFile.printf("%d/%d/20%d, %s: %s\nwake count: %d", GPS.month, GPS.day, GPS.year, displayTime(getTime()), message, wakeCounter);
     logFile.close();
 }
