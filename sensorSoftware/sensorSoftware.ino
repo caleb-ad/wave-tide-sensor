@@ -46,6 +46,7 @@ const uint64_t half_read_time = 1000000 * READ_TIME / 2;
 
 // Data which should be preserved between sleep/wake cycles
 RTC_DATA_ATTR uint32_t wakeCounter = 0;
+RTC_DATA_ATTR UnixTime wake_time;
 
 // The format_buffer is overwritten by displayTime and unixTime
 char format_buf[FORMAT_BUF_SIZE];
@@ -71,6 +72,8 @@ bool gps_polling_isr(void* arg) {
     timer_group_clr_intr_status_in_isr(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0);
     return false;
 }
+
+inline bool GPS_has_fix(Adafruit_GPS &gps) { return gps.fixquality >= 1; }
 
 void sonarDataReady(void) {
     measurement_request = true;
@@ -292,7 +295,7 @@ void sdWrite(sensorData *data)
   //Create string for new file name
   //if the gps has updated its time in the last read cycle use that time to name the file
   //filenames are at most 8 characters + 6("/Data/") + 4(".txt") + null terminator = 19
-  if(GPS.fixquality >= 1) snprintf(format_buf, 19 , "/Data/%x.txt", getTime().getUnix());
+  if(GPS_has_fix(GPS)) snprintf(format_buf, 19 , "/Data/%x.txt", getTime().getUnix());
   else snprintf(format_buf, 19, "/Data/%x_%x.txt", wakeCounter, millis());
 
   //Create and open a file
@@ -355,7 +358,7 @@ void sdBegin(void)
 void goto_sleep(void) {
     //Print sleep time info
     Serial.printf("Going to sleep at %s\n", displayTime(getTime()));
-    if(GPS.fixquality >= 1) Serial.println("GPS has fix");
+    if(GPS_has_fix(GPS)) Serial.println("GPS has fix");
 
     writeLog("sleeping");
 
@@ -372,7 +375,7 @@ void goto_sleep(void) {
     //Prepare and go into sleep
     Serial.flush();
     //schedule to wake up so that the next measurements are centered at the next shceduled measurement time
-    if(GPS.fixquality >= 1) {
+    if(GPS_has_fix(GPS)) {
         uint64_t next_measurement = (MINUTE_ALLIGN - (GPS.minute % MINUTE_ALLIGN)) * (60 * 1000000) - (GPS.seconds * 1000000) - ((millis() - gps_millis_offset) % 1000) * 1000;
         esp_sleep_enable_timer_wakeup(
             next_measurement > half_read_time ?
@@ -383,7 +386,6 @@ void goto_sleep(void) {
         //*This could overflow
         esp_sleep_enable_timer_wakeup(1000000 * 60 * MINUTE_ALLIGN  - (1000000 * (rtc_time_get() - clock_start)) / rtc_slow_clk_hz);
     }
-
 
     esp_deep_sleep_start();
 }
