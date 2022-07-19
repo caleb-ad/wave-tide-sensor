@@ -12,7 +12,7 @@
 #define READ_TIME 2 * 60//Length of time to measure (in seconds)
 
 // measurements will occurr on mulitples of this value after the hour
-#define MINUTE_ALLIGN 5//minutes
+#define MINUTE_ALLIGN 6//minutes
 #define MEASUREMENT_HZ 5.64 //MB 7388 (10 meter sensor)
 
 //#define EFF_HZ 6.766 //MB 7388 (5 meter sensor)
@@ -301,7 +301,7 @@ void sdWrite(sensorData *data)
   Serial.printf("Writing %s: ", format_buf);
 
   dataFile.printf("%f, %f, %f\n", latitude_signed(GPS), longitude_signed(GPS), GPS.altitude);
-  dataFile.printf("data from %s to %s\n", displayTime(data[0].time), displayTime(data[LIST_SIZE - 1].time));
+  dataFile.printf("last datum from %s\n", displayTime(data[LIST_SIZE - 1].time));
 
   //Iterate over entire list
   for (int i = 0; i < LIST_SIZE; i++)
@@ -354,7 +354,6 @@ void sdBegin(void)
 //Powers down all peripherals, Sleeps until woken after set interval, runs setup() again
 void goto_sleep(void) {
     //Print sleep time info
-    //* Why does the printf not work with both the str and the number?
     Serial.printf("Going to sleep at %s\n", displayTime(getTime()));
     if(GPS.fixquality >= 1) Serial.println("GPS has fix");
 
