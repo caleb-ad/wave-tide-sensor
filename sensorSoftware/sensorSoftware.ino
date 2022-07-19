@@ -46,7 +46,7 @@ const uint64_t half_read_time = 1000000 * READ_TIME / 2;
 
 // Data which should be preserved between sleep/wake cycles
 RTC_DATA_ATTR uint32_t wakeCounter = 0;
-RTC_DATA_ATTR UnixTime wake_time;
+RTC_DATA_ATTR uint64_t sleep_time;
 
 // The format_buffer is overwritten by displayTime and unixTime
 char format_buf[FORMAT_BUF_SIZE];
@@ -75,16 +75,19 @@ bool gps_polling_isr(void* arg) {
 
 inline bool GPS_has_fix(Adafruit_GPS &gps) { return gps.fixquality >= 1; }
 
+// returns time in microseconds since the beginning of current measurement period
+inline uint64_t rtc_clk_usecs() {return (1000000 * (rtc_time_get() - clock_start)) / rtc_slow_clk_hz; }
+
 void sonarDataReady(void) {
     measurement_request = true;
 }
 
 void setup(void) {
-    // Assert that constants and defines are in valid state
-    assert(READ_TIME < MINUTE_ALLIGN * 60);
-
     // Clock cycle count when we begin measuring
     clock_start = rtc_time_get();
+
+    // Assert that constants and defines are in valid state
+    assert(READ_TIME < MINUTE_ALLIGN * 60);
 
     //Setup for SD card
     pinMode(SD_CS, OUTPUT);
@@ -273,7 +276,12 @@ int32_t sonarMeasure(void) {
 void readData(sensorData &data)
 {
     data.dist = sonarMeasure();
-    data.time = getTime();
+    if(GPS_has_fix(GPS)) data.time = getTime();
+    else {
+        UnixTime extrapolated(GPS_DIFF_FROM_GMT);
+        extrapolated.getDateTime(sleep_time + rtc_clk_usecs() / 1000000);
+        data.time = extrapolated;
+    }
     data.tempExt = celsius_to_fahrenheit(tempSensor.readTemperature());
     data.humExt = tempSensor.readHumidity();
 
@@ -374,6 +382,7 @@ void goto_sleep(void) {
 
     //Prepare and go into sleep
     Serial.flush();
+    sleep_time = getTime().getUnix();
     //schedule to wake up so that the next measurements are centered at the next shceduled measurement time
     if(GPS_has_fix(GPS)) {
         uint64_t next_measurement = (MINUTE_ALLIGN - (GPS.minute % MINUTE_ALLIGN)) * (60 * 1000000) - (GPS.seconds * 1000000) - ((millis() - gps_millis_offset) % 1000) * 1000;
@@ -384,7 +393,7 @@ void goto_sleep(void) {
     }
     else { // when the GPS does not have a fix sleep for the correct interval, the GPS may have previously had a fix
         //*This could overflow
-        esp_sleep_enable_timer_wakeup(1000000 * 60 * MINUTE_ALLIGN  - (1000000 * (rtc_time_get() - clock_start)) / rtc_slow_clk_hz);
+        esp_sleep_enable_timer_wakeup(1000000 * 60 * MINUTE_ALLIGN  - rtc_clk_usecs());
     }
 
     esp_deep_sleep_start();
