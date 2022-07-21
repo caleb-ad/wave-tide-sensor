@@ -214,7 +214,14 @@ void startGPS(Adafruit_GPS &gps)
 UnixTime getTime(void)
 {
     UnixTime stamp(GPS_DIFF_FROM_GMT);
-    stamp.setDateTime(2000 + GPS.year, GPS.month, GPS.day, GPS.hour, GPS.minute, GPS.seconds);
+
+    if(GPS_has_fix(GPS)) {
+        stamp.setDateTime(2000 + GPS.year, GPS.month, GPS.day, GPS.hour, GPS.minute, GPS.seconds);
+    }
+    else {
+        stamp.getDateTime(sleep_time + rtc_clk_usecs() / 1000000);
+    }
+
     return stamp;
 }
 
@@ -277,12 +284,7 @@ int32_t sonarMeasure(void) {
 void readData(sensorData &data)
 {
     data.dist = sonarMeasure();
-    if(GPS_has_fix(GPS)) data.time = getTime();
-    else {
-        UnixTime extrapolated(GPS_DIFF_FROM_GMT);
-        extrapolated.getDateTime(sleep_time + rtc_clk_usecs() / 1000000UL);
-        data.time = extrapolated;
-    }
+    data.time = getTime();
     data.tempExt = celsius_to_fahrenheit(tempSensor.readTemperature());
     data.humExt = tempSensor.readHumidity();
 
