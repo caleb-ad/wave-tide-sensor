@@ -1,13 +1,12 @@
 #include <Wire.h>
 #include <SPI.h>
 #include <SD.h>
-#include <driver\timer.h>
-#include <soc\rtc.h>
+#include <driver/timer.h>
+#include <soc/rtc.h>
 #include "Adafruit_SHT31.h"
 #include "Adafruit_GPS.h"
 #include "UnixTime.h"
 
-//! Changed for debugging
 // values of 'READ_TIME' more than 10 minutes usually require too much memory
 #define READ_TIME 2 * 60//Length of time to measure (in seconds)
 
@@ -155,11 +154,11 @@ void setup(void) {
 void loop(void) {
     //TODO way to prevent reallocation of memory every sleep/wake cycle
     //Everything should be overwritten before it is read, so there is no need to initialize the data
-    static sensorData* data = (sensorData*)(operator new[](sizeof(sensorData) * LIST_SIZE, std::nothrow));
     //C++ exceptions are disabled by default, use std::nothrow and assert non-null
-    //failed assertions cause a Fatal error
+    static sensorData* data = (sensorData*)(operator new[](sizeof(sensorData) * LIST_SIZE, std::nothrow));
     static uint32_t idx = 0;
 
+    //failed assertions cause a Fatal error
     assert(data != nullptr);
 
     while(num_gps_reads > 0){
@@ -279,7 +278,7 @@ void readData(sensorData &data)
     if(GPS_has_fix(GPS)) data.time = getTime();
     else {
         UnixTime extrapolated(GPS_DIFF_FROM_GMT);
-        extrapolated.getDateTime(sleep_time + rtc_clk_usecs() / 1000000);
+        extrapolated.getDateTime(sleep_time + rtc_clk_usecs() / 1000000UL);
         data.time = extrapolated;
     }
     data.tempExt = celsius_to_fahrenheit(tempSensor.readTemperature());
@@ -327,7 +326,7 @@ void sdWrite(sensorData *data)
     }
 
     dataFile.printf("%s, %d, %f, %f\n",
-        unixTime(data[i].time),
+        unixTime(data[i].time), //TODO, milliseconds aren't accurate
         data[i].dist,
         data[i].tempExt,
         data[i].humExt);
