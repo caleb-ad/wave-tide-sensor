@@ -1,3 +1,4 @@
+#include <utility>
 #include <Wire.h>
 #include <SPI.h>
 #include <SD.h>
@@ -57,12 +58,22 @@ volatile bool measurement_request = false;
 //Objects to manage peripherals
 Adafruit_GPS GPS(&Serial2);
 Adafruit_SHT31 tempSensor = Adafruit_SHT31();
+File data_file;
 
 struct sensorData {
     UnixTime time;
     float tempExt;
     float humExt;
     int dist;
+
+    // represent this datum in ASCII text, and copy that representation into the given byte buffer
+    int repr(char *buf, uint32_t n) {
+        return snprintf(buf, n, "%s, %d, %f, %f\n",
+        unixTime(time),
+        dist,
+        tempExt,
+        humExt);
+    }
 };
 
 // every 10ms schedule a read from the GPS, when
@@ -88,13 +99,21 @@ void setup(void) {
     // Assert that constants and defines are in valid state
     assert(READ_TIME < MINUTE_ALLIGN * 60);
 
+    Serial.begin(115200); //Serial monitor
+
     //Setup for SD card
     pinMode(SD_CS, OUTPUT);
     SD.begin(SD_CS);
     writeLog("Waking Up");
     writeLog("SD enabled");
 
-    Serial.begin(115200); //Serial monitor
+    data_file = SD.open(format_buf, FILE_WRITE, true);
+    //Create string for new file name
+    //if the gps has updated its time in the last read cycle use that time to name the file
+    //filenames are at most 8 characters + 6("/Data/") + 4(".txt") + null terminator = 19
+    if(GPS_has_fix(GPS)) snprintf(format_buf, 19 , "/Data/%x.txt", getTime().getUnix());
+    else snprintf(format_buf, 19, "/Data/%x_%x.txt", wakeCounter, millis());
+    data_file.printf("%f, %f, %f\n", latitude_signed(GPS), longitude_signed(GPS), GPS.altitude);
 
     //9600 bps for Maxbotix
     Serial1.begin(9600, SERIAL_8N1, SONAR_RX, SONAR_TX); //Maxbotix
@@ -152,14 +171,11 @@ void setup(void) {
 }
 
 void loop(void) {
-    //TODO way to prevent reallocation of memory every sleep/wake cycle
     //Everything should be overwritten before it is read, so there is no need to initialize the data
     //C++ exceptions are disabled by default, use std::nothrow and assert non-null
-    static sensorData* data = (sensorData*)(operator new[](sizeof(sensorData) * LIST_SIZE, std::nothrow));
-    static uint32_t idx = 0;
-
-    //failed assertions cause a Fatal error
-    assert(data != nullptr);
+    static const uint32_t data_size = SD.sectorSize();
+    static uint8_t *data = (uint8_t*)(operator new[](data_size * sizeof(uint8_t), std::nothrow));
+    assert(data != nullptr && data_size > 0);
 
     while(num_gps_reads > 0){
         GPS.read(); //if GPS.read() takes longer than the GPS polling frequency, execution may get stuck in this loop
@@ -173,18 +189,18 @@ void loop(void) {
             gps_millis_offset = millis() - GPS.milliseconds;
         }
     }
-    if(measurement_request && (idx < LIST_SIZE)) {
-        measurement_request = false;
-        readData(data[idx]);
-        idx++;
+    if(measurement_request) {
+        sdWrite(data, data_size, data_file, readData());
     }
-    else if(idx >= LIST_SIZE){
-        //Write to SD card and serial monitor
-        writeLog("Writing to SD card");
-        sdWrite(data);
+    if(rtc_clk_usecs() >= READ_TIME * 1000000){
+        writeLog("Finished measurement");
+
+        //Write last data to SD card
+        sdWrite(data, data_size, data_file, {0}, true);
 
         //Free allocated data
         //This may not be neccesary because the chip SRAM resets after waking from deep sleep
+        data_file.close();
         delete[] data;
 
         goto_sleep();
@@ -272,68 +288,41 @@ int32_t sonarMeasure(void) {
 //Fill time, temp, and measurement arrays
 //Should be called whenever sonar sensor has data ready
 //TODO GPS negative/postive hemisphere information
-void readData(sensorData &data)
-{
-    data.dist = sonarMeasure();
-    if(GPS_has_fix(GPS)) data.time = getTime();
-    else {
-        UnixTime extrapolated(GPS_DIFF_FROM_GMT);
-        extrapolated.getDateTime(sleep_time + rtc_clk_usecs() / 1000000UL);
-        data.time = extrapolated;
-    }
-    data.tempExt = celsius_to_fahrenheit(tempSensor.readTemperature());
-    data.humExt = tempSensor.readHumidity();
+sensorData readData(){
+    sensorData datum = {0};
+    datum.dist = sonarMeasure();
+    if(GPS_has_fix(GPS)) datum.time = getTime();
+    else datum.time.getDateTime(sleep_time + rtc_clk_usecs() / 1000000UL);
+    datum.tempExt = celsius_to_fahrenheit(tempSensor.readTemperature());
+    datum.humExt = tempSensor.readHumidity();
 
-    Serial.printf("%s %d  %f  %f  %f  %f  %f\n",
-    unixTime(data.time),
-    data.dist,
-    data.tempExt,
-    data.humExt,
-    latitude_signed(GPS),
-    longitude_signed(GPS),
-    GPS.altitude);
+    return datum;
 }
 
 //Write the list to the sd card
-void sdWrite(sensorData *data)
-{
-  long start = millis();
+void sdWrite(uint8_t *data, uint32_t data_size, File &data_file, sensorData &&datum, bool final=false) {
+    static uint32_t bytes_written = 0;
+    static uint8_t *current_byte = data;
+    assert(data != nullptr);
 
-  //Create string for new file name
-  //if the gps has updated its time in the last read cycle use that time to name the file
-  //filenames are at most 8 characters + 6("/Data/") + 4(".txt") + null terminator = 19
-  if(GPS_has_fix(GPS)) snprintf(format_buf, 19 , "/Data/%x.txt", getTime().getUnix());
-  else snprintf(format_buf, 19, "/Data/%x_%x.txt", wakeCounter, millis());
-
-  //Create and open a file
-  File dataFile = SD.open(format_buf, FILE_WRITE, true);
-  if(!dataFile) return;
-  Serial.printf("Writing %s: ", format_buf);
-
-  dataFile.printf("%f, %f, %f\n", latitude_signed(GPS), longitude_signed(GPS), GPS.altitude);
-  dataFile.printf("last datum from %s\n", displayTime(data[LIST_SIZE - 1].time));
-
-  //Iterate over entire list
-  for (int i = 0; i < LIST_SIZE; i++)
-  {
-    //Break out if it's taking too long
-    if ((millis() - start) > 10000)
-    {
-      dataFile.close();
-      Serial.println("Taking too long");
-      writeLog("data write timed out");
-      return;
+    if(final) {
+        data_file.write(data, bytes_written);
+        return;
     }
 
-    dataFile.printf("%s, %d, %f, %f\n",
-        unixTime(data[i].time), //TODO, milliseconds aren't accurate
-        data[i].dist,
-        data[i].tempExt,
-        data[i].humExt);
-  }
-
-  //Close file
-  dataFile.close();
+    int result = datum.repr((char*)current_byte, data_size - bytes_written);
+    if(result < 0){}//format error
+    else if(result < data_size - bytes_written) { //data succesfully written
+        current_byte += result;
+        bytes_written += result;
+    }
+    else { //buffer full
+        data_file.write(data, bytes_written);
+        Serial.write(data, bytes_written);
+        current_byte = data;
+        bytes_written = 0;
+        sdWrite(data, data_size, data_file, std::forward<sensorData>(datum));
+    }
 }
 
 //Check or create header file
