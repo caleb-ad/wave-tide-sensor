@@ -109,8 +109,6 @@ void setup(void) {
     if ((wakeCounter % 1000) == 0) {
         wakeCounter = 0;
         sdBegin();
-        //TODO get measurements to allign with 15 min intervals
-        //TODO wait for GPS to get fix?
     }
     wakeCounter += 1;
 
@@ -154,7 +152,6 @@ void setup(void) {
 }
 
 void loop(void) {
-    //TODO way to prevent reallocation of memory every sleep/wake cycle
     //Everything should be overwritten before it is read, so there is no need to initialize the data
     //C++ exceptions are disabled by default, use std::nothrow and assert non-null
     static sensorData* data = (sensorData*)(operator new[](sizeof(sensorData) * LIST_SIZE, std::nothrow));
@@ -280,7 +277,6 @@ int32_t sonarMeasure(void) {
 
 //Fill time, temp, and measurement arrays
 //Should be called whenever sonar sensor has data ready
-//TODO GPS negative/postive hemisphere information
 void readData(sensorData &data)
 {
     data.dist = sonarMeasure();
