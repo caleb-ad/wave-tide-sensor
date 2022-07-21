@@ -8,6 +8,9 @@
 #include "Adafruit_GPS.h"
 #include "UnixTime.h"
 
+//comment out this line if monitoring over Serial is unneccesary
+#define DEBUG
+
 // values of 'READ_TIME' more than 10 minutes usually require too much memory
 #define READ_TIME 2 * 60//Length of time to measure (in seconds)
 
@@ -20,6 +23,7 @@
 #define secs_to_microsecs(__seconds) ((__seconds) * 1000000)
 #define celsius_to_fahrenheit(__celsius) ((__celsius) * 9.0 / 5.0 + 32.0)
 #define GMT_to_PST(__GMT) (((__GMT) + 17) % 24)
+
 #define FORMAT_BUF_SIZE 100
 
 #define SD_CS GPIO_NUM_5 //SD card chip select pin
@@ -99,8 +103,6 @@ void setup(void) {
     // Assert that constants and defines are in valid state
     assert(READ_TIME < MINUTE_ALLIGN * 60);
 
-    Serial.begin(115200); //Serial monitor
-
     //Setup for SD card
     pinMode(SD_CS, OUTPUT);
     SD.begin(SD_CS);
@@ -123,8 +125,6 @@ void setup(void) {
     writeLog("Serial Ports Enabled");
 
     //Run Setup, check SD file every 1000th wake cycle
-    Serial.print("Wake Counter: ");
-    Serial.println(wakeCounter);
     if ((wakeCounter % 1000) == 0) {
         wakeCounter = 0;
         sdBegin();
@@ -165,9 +165,11 @@ void setup(void) {
     pinMode(LED_BUILTIN, OUTPUT);
     writeLog("LEDs enabled");
 
-    Serial.println();
-    Serial.print("Starting: ");
-    Serial.println(displayTime(getTime()));
+    #ifdef DEBUG
+    Serial.begin(115200); //Serial monitor
+    Serial.printf("Wake Counter: %d\n", wakeCounter);
+    #endif
+
 }
 
 void loop(void) {
@@ -228,7 +230,14 @@ void startGPS(Adafruit_GPS &gps)
 UnixTime getTime(void)
 {
     UnixTime stamp(GPS_DIFF_FROM_GMT);
-    stamp.setDateTime(2000 + GPS.year, GPS.month, GPS.day, GPS.hour, GPS.minute, GPS.seconds);
+
+    if(GPS_has_fix(GPS)) {
+        stamp.setDateTime(2000 + GPS.year, GPS.month, GPS.day, GPS.hour, GPS.minute, GPS.seconds);
+    }
+    else {
+        stamp.getDateTime(sleep_time + rtc_clk_usecs() / 1000000);
+    }
+
     return stamp;
 }
 
@@ -318,7 +327,9 @@ void sdWrite(uint8_t *data, uint32_t data_size, File &data_file, sensorData &&da
     }
     else { //buffer full
         data_file.write(data, bytes_written);
+        #ifdef DEBUG
         Serial.write(data, bytes_written);
+        #endif
         current_byte = data;
         bytes_written = 0;
         sdWrite(data, data_size, data_file, std::forward<sensorData>(datum));
@@ -331,7 +342,6 @@ void sdBegin(void)
     //Check if file exists and create one if not
     if (!SD.exists("/README.txt"))
     {
-        Serial.println("Creating README");
         File read_me = SD.open("/README.txt", FILE_WRITE);
         if(!read_me) return;
 
@@ -353,8 +363,10 @@ void sdBegin(void)
 //Powers down all peripherals, Sleeps until woken after set interval, runs setup() again
 void goto_sleep(void) {
     //Print sleep time info
+    #ifdef DEBUG
     Serial.printf("Going to sleep at %s\n", displayTime(getTime()));
     if(GPS_has_fix(GPS)) Serial.println("GPS has fix");
+    #endif
 
     writeLog("sleeping");
 
@@ -368,8 +380,6 @@ void goto_sleep(void) {
     gpio_hold_en(SONAR_EN); //Make sure Maxbotix is off
     gpio_deep_sleep_hold_en();
 
-    //Prepare and go into sleep
-    Serial.flush();
     sleep_time = getTime().getUnix();
     //schedule to wake up so that the next measurements are centered at the next shceduled measurement time
     if(GPS_has_fix(GPS)) {
