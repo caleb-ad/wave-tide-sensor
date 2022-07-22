@@ -19,8 +19,6 @@
 #define MEASUREMENT_HZ 5.64 //MB 7388 (10 meter sensor)
 
 //#define EFF_HZ 6.766 //MB 7388 (5 meter sensor)
-#define LIST_SIZE (uint32_t)((MEASUREMENT_HZ)*(READ_TIME))
-#define secs_to_microsecs(__seconds) ((__seconds) * 1000000)
 #define celsius_to_fahrenheit(__celsius) ((__celsius) * 9.0 / 5.0 + 32.0)
 #define GMT_to_PST(__GMT) (((__GMT) + 17) % 24)
 
