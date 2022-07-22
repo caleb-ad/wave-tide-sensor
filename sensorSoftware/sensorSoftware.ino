@@ -12,10 +12,10 @@
 #define DEBUG
 
 // values of 'READ_TIME' more than 10 minutes usually require too much memory
-#define READ_TIME 2 * 60//Length of time to measure (in seconds)
+#define READ_TIME 1 * 60//Length of time to measure (in seconds)
 
 // measurements will occurr on mulitples of this value after the hour
-#define MINUTE_ALLIGN 6//minutes
+#define MINUTE_ALLIGN 2//minutes
 #define MEASUREMENT_HZ 5.64 //MB 7388 (10 meter sensor)
 
 //#define EFF_HZ 6.766 //MB 7388 (5 meter sensor)
@@ -99,17 +99,7 @@ void setup(void) {
 
     //Setup for SD card
     pinMode(SD_CS, OUTPUT);
-    SD.begin(SD_CS);
-    writeLog("Waking Up");
-    writeLog("SD enabled");
-
-    data_file = SD.open(format_buf, FILE_WRITE, true);
-    //Create string for new file name
-    //if the gps has updated its time in the last read cycle use that time to name the file
-    //filenames are at most 8 characters + 6("/Data/") + 4(".txt") + null terminator = 19
-    if(GPS_has_fix(GPS) || sleep_time != 0) snprintf(format_buf, 19 , "/Data/%x.txt", getTime().getUnix());
-    else snprintf(format_buf, 19, "/Data/%x_%x.txt", wakeCounter, millis());
-    data_file.printf("%f, %f, %f\n", latitude_signed(GPS), longitude_signed(GPS), GPS.altitude);
+    assert(SD.begin(SD_CS));
 
     //9600 bps for Maxbotix
     Serial1.begin(9600, SERIAL_8N1, SONAR_RX, SONAR_TX); //Maxbotix
@@ -117,6 +107,8 @@ void setup(void) {
     Serial1.setRxTimeout(10);
     startGPS(GPS); //uses Serial2
     writeLog("Serial Ports Enabled");
+
+
 
     //Run Setup, check SD file every 1000th wake cycle
     if ((wakeCounter % 1000) == 0) {
@@ -158,6 +150,15 @@ void setup(void) {
     //Setup for LED
     pinMode(LED_BUILTIN, OUTPUT);
     writeLog("LEDs enabled");
+
+    //Create string for new file name
+    //if the gps has updated its time in the last read cycle use that time to name the file
+    //filenames are at most 8 characters + 6("/Data/") + 4(".txt") + null terminator = 19
+    if(GPS_has_fix(GPS) || sleep_time != 0) snprintf(format_buf, 19 , "/Data/%x.txt", getTime().getUnix());
+    else snprintf(format_buf, 19, "/Data/%x_%x.txt", wakeCounter, millis());
+    data_file.printf("%f, %f, %f\n", latitude_signed(GPS), longitude_signed(GPS), GPS.altitude);
+    data_file = SD.open(format_buf, FILE_WRITE, true);
+    assert(data_file);
 
     #ifdef DEBUG
     Serial.begin(115200); //Serial monitor
