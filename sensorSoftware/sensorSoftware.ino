@@ -59,6 +59,8 @@ char format_buf[FORMAT_BUF_SIZE];
 uint32_t num_gps_reads = 0;
 volatile bool measurement_request = false;
 
+const uint32_t sd_sector_size = SD.sectorSize();
+
 //Objects to manage peripherals
 Adafruit_GPS GPS(&Serial2);
 Adafruit_SHT31 tempSensor = Adafruit_SHT31();
@@ -175,7 +177,7 @@ void setup(void) {
 void loop(void) {
     //Everything should be overwritten before it is read, so there is no need to initialize the data
     //C++ exceptions are disabled by default, use std::nothrow and assert non-null
-    static const uint32_t data_size = SD.sectorSize();
+    static const uint32_t data_size = sd_sector_size;
     static uint8_t *data = (uint8_t*)(operator new[](data_size * sizeof(uint8_t), std::nothrow));
     assert(data != nullptr && data_size > 0);
 
@@ -321,18 +323,19 @@ void sdWrite(uint8_t *data, uint32_t data_size, File &data_file, sensorData &&da
 
     int result = datum.repr((char*)current_byte, data_size - bytes_written);
     if(result < 0){}//format error
-    else if(result < data_size - bytes_written) { //data succesfully written
+    else if(result < data_size - bytes_written) { //all data succesfully written to buffer
         current_byte += result;
         bytes_written += result;
     }
-    else { //buffer full
-        data_file.write(data, bytes_written);
+    else { // buffer full, some 'leftover bytes' not written to buffer
+        data_file.write(data, data_size);
         #ifdef DEBUG
-        Serial.write(data, bytes_written);
+        Serial.write(data, data_size);
         #endif
-        current_byte = data;
-        bytes_written = 0;
-        sdWrite(data, data_size, data_file, std::forward<sensorData>(datum));
+        // write leftover bytes to now empty data buffer
+        bytes_written = result - (data_size - bytes_written);
+        current_byte = data + bytes_written;
+        memcpy(data + datum.repr((char*)data, data_size) - bytes_written, data, bytes_written);
     }
 }
 
