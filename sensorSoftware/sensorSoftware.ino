@@ -9,13 +9,13 @@
 #include "UnixTime.h"
 
 //comment out this line if monitoring over Serial is unneccesary
-#define DEBUG
+// #define DEBUG
 
 // values of 'READ_TIME' more than 10 minutes usually require too much memory
-#define READ_TIME 1 * 60//Length of time to measure (in seconds)
+#define READ_TIME 2 * 60//Length of time to measure (in seconds)
 
 // measurements will occurr on mulitples of this value after the hour
-#define MINUTE_ALLIGN 2//minutes
+#define MINUTE_ALLIGN 6//minutes
 #define MEASUREMENT_HZ 5.64 //MB 7388 (10 meter sensor)
 
 //#define EFF_HZ 6.766 //MB 7388 (5 meter sensor)
