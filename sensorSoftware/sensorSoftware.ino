@@ -22,7 +22,7 @@
 #define celsius_to_fahrenheit(__celsius) ((__celsius) * 9.0 / 5.0 + 32.0)
 #define GMT_to_PST(__GMT) (((__GMT) + 17) % 24)
 
-#define FORMAT_BUF_SIZE 100
+#define FORMAT_BUF_SIZE 200//(bytes) if this is too small some data lines may be truncated
 
 #define SD_CS GPIO_NUM_5 //SD card chip select pin
 
@@ -48,9 +48,10 @@ const uint64_t half_read_time = 1000000 * READ_TIME / 2;
 
 // Data which should be preserved between sleep/wake cycles
 RTC_DATA_ATTR uint32_t wakeCounter = 0;
-RTC_DATA_ATTR uint64_t sleep_time;
+RTC_DATA_ATTR uint64_t sleep_time = 0;
+RTC_DATA_ATTR uint64_t sleep_cycles = 0;
 
-// The format_buffer is overwritten by displayTime and unixTime
+// The format_buffer is overwritten by displayTime and unixTime, and used to format each line of data
 char format_buf[FORMAT_BUF_SIZE];
 
 // GPS ISR and Serial1 callback variables
@@ -89,8 +90,8 @@ bool gps_polling_isr(void* arg) {
 
 inline bool GPS_has_fix(Adafruit_GPS &gps) { return gps.fixquality >= 1; }
 
-// returns time in microseconds since the beginning of current measurement period
-inline uint64_t rtc_clk_usecs() {return (1000000 * (rtc_time_get() - clock_start)) / rtc_slow_clk_hz; }
+// returns time in microseconds since 'prev' as measured by rtc clk
+inline uint64_t rtc_clk_usecs(uint64_t prev) {return (1000000 * (rtc_time_get() - prev)) / rtc_slow_clk_hz; }
 
 void sonarDataReady(void) {
     measurement_request = true;
@@ -113,7 +114,7 @@ void setup(void) {
     //Create string for new file name
     //if the gps has updated its time in the last read cycle use that time to name the file
     //filenames are at most 8 characters + 6("/Data/") + 4(".txt") + null terminator = 19
-    if(GPS_has_fix(GPS)) snprintf(format_buf, 19 , "/Data/%x.txt", getTime().getUnix());
+    if(GPS_has_fix(GPS) || sleep_time != 0) snprintf(format_buf, 19 , "/Data/%x.txt", getTime().getUnix());
     else snprintf(format_buf, 19, "/Data/%x_%x.txt", wakeCounter, millis());
     data_file.printf("%f, %f, %f\n", latitude_signed(GPS), longitude_signed(GPS), GPS.altitude);
 
@@ -173,12 +174,6 @@ void setup(void) {
 }
 
 void loop(void) {
-    //Everything should be overwritten before it is read, so there is no need to initialize the data
-    //C++ exceptions are disabled by default, use std::nothrow and assert non-null
-    static const uint32_t data_size = sd_sector_size;
-    static uint8_t *data = (uint8_t*)(operator new[](data_size * sizeof(uint8_t), std::nothrow));
-    assert(data != nullptr && data_size > 0);
-
     while(num_gps_reads > 0){
         GPS.read(); //if GPS.read() takes longer than the GPS polling frequency, execution may get stuck in this loop
         num_gps_reads -= 1;
@@ -192,18 +187,14 @@ void loop(void) {
         }
     }
     if(measurement_request) {
-        sdWrite(data, data_size, data_file, readData());
+        readData(data_file);
     }
-    if(rtc_clk_usecs() >= READ_TIME * 1000000){
+    if(rtc_clk_usecs(clock_start) >= READ_TIME * 1000000){
         writeLog("Finished measurement");
 
-        //Write last data to SD card
-        sdWrite(data, data_size, data_file, {0}, true);
-
         //Free allocated data
-        //This may not be neccesary because the chip SRAM resets after waking from deep sleep
+        //close data_file makes sure all data is written to SD card before cleaning up resources
         data_file.close();
-        delete[] data;
 
         goto_sleep();
     }
@@ -235,7 +226,7 @@ UnixTime getTime(void)
         stamp.setDateTime(2000 + GPS.year, GPS.month, GPS.day, GPS.hour, GPS.minute, GPS.seconds);
     }
     else {
-        stamp.getDateTime(sleep_time + rtc_clk_usecs() / 1000000);
+        stamp.getDateTime(sleep_time + rtc_clk_usecs(sleep_cycles) / 1000000);
     }
 
     return stamp;
@@ -294,47 +285,25 @@ int32_t sonarMeasure(void) {
     return result;
   }
 
-//Fill time, temp, and measurement arrays
+//Takes a measurement, formats it, and writes it to data storage in the given file
 //Should be called whenever sonar sensor has data ready
-//TODO GPS negative/postive hemisphere information
-sensorData readData(){
+sensorData readData(File &data_file){
     sensorData datum = {0};
     datum.dist = sonarMeasure();
-    if(GPS_has_fix(GPS)) datum.time = getTime();
-    else datum.time.getDateTime(sleep_time + rtc_clk_usecs() / 1000000UL);
+    datum.time = getTime();
     datum.tempExt = celsius_to_fahrenheit(tempSensor.readTemperature());
     datum.humExt = tempSensor.readHumidity();
 
-    return datum;
-}
-
-//Write the list to the sd card
-void sdWrite(uint8_t *data, uint32_t data_size, File &data_file, sensorData &&datum, bool final=false) {
-    static uint32_t bytes_written = 0;
-    static uint8_t *current_byte = data;
-    assert(data != nullptr);
-
-    if(final) {
-        data_file.write(data, bytes_written);
-        return;
-    }
-
-    int result = datum.repr((char*)current_byte, data_size - bytes_written);
+    int result = datum.repr(format_buf, FORMAT_BUF_SIZE);
     if(result < 0){}//format error
-    else if(result < data_size - bytes_written) { //all data succesfully written to buffer
-        current_byte += result;
-        bytes_written += result;
-    }
-    else { // buffer full, some 'leftover bytes' not written to buffer
-        data_file.write(data, data_size);
+    else {//some or all data succesfuly formatted into buffer
+        data_file.write((uint8_t*)format_buf, (uint32_t)result);
         #ifdef DEBUG
-        Serial.write(data, data_size);
+        Serial.write((uint8_t*)format_buf, (uint32_t)result);
         #endif
-        // write leftover bytes to now empty data buffer
-        bytes_written = result - (data_size - bytes_written);
-        current_byte = data + bytes_written;
-        memcpy(data + datum.repr((char*)data, data_size) - bytes_written, data, bytes_written);
     }
+
+    return datum;
 }
 
 //Check or create header file
@@ -382,6 +351,7 @@ void goto_sleep(void) {
     gpio_deep_sleep_hold_en();
 
     sleep_time = getTime().getUnix();
+    sleep_cycles = rtc_time_get();
     //schedule to wake up so that the next measurements are centered at the next shceduled measurement time
     if(GPS_has_fix(GPS)) {
         uint64_t next_measurement = (MINUTE_ALLIGN - (GPS.minute % MINUTE_ALLIGN)) * (60 * 1000000) - (GPS.seconds * 1000000) - ((millis() - gps_millis_offset) % 1000) * 1000;
@@ -392,7 +362,7 @@ void goto_sleep(void) {
     }
     else { // when the GPS does not have a fix sleep for the correct interval, the GPS may have previously had a fix
         //*This could overflow
-        esp_sleep_enable_timer_wakeup(1000000 * 60 * MINUTE_ALLIGN  - rtc_clk_usecs());
+        esp_sleep_enable_timer_wakeup(1000000 * 60 * MINUTE_ALLIGN  - rtc_clk_usecs(clock_start));
     }
 
     esp_deep_sleep_start();
