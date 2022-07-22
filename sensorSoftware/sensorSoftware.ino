@@ -71,14 +71,7 @@ struct sensorData {
     float humExt;
     int dist;
 
-    // represent this datum in ASCII text, and copy that representation into the given byte buffer
-    int repr(char *buf, uint32_t n) {
-        return snprintf(buf, n, "%s, %d, %f, %f\n",
-        unixTime(time),
-        dist,
-        tempExt,
-        humExt);
-    }
+    int repr(char *buf, uint32_t n);
 };
 
 // every 10ms schedule a read from the GPS, when
@@ -187,6 +180,7 @@ void loop(void) {
         }
     }
     if(measurement_request) {
+        measurement_request = false;
         readData(data_file);
     }
     if(rtc_clk_usecs(clock_start) >= READ_TIME * 1000000){
@@ -284,6 +278,15 @@ int32_t sonarMeasure(void) {
 
     return result;
   }
+
+// represent this datum in ASCII text, and copy that representation into the given byte buffer
+int sensorData::repr(char *buf, uint32_t n) {
+    return snprintf(buf, n, "%s, %d, %f, %f\n",
+    unixTime(time),
+    dist,
+    tempExt,
+    humExt);
+}
 
 //Takes a measurement, formats it, and writes it to data storage in the given file
 //Should be called whenever sonar sensor has data ready
