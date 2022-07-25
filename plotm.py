@@ -71,7 +71,8 @@ def measurement_density(file_name_data):
     ax.scatter(density[0], density[1])
 
 
-
+#Example command to run this script from a shell in the same directory:
+#python plotm.py "D:\Data"
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         main(sys.argv[1])
