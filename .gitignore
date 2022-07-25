@@ -4,6 +4,6 @@ Reference/
 .vscode/settings.json
 output/
 timer_test/
-
+figures/
 LevelSenseLite.ino
 sensorSoftware_v1.ino

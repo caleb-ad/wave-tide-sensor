@@ -1,6 +1,7 @@
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+from statistics import median, stdev
 import os
 import sys
 
@@ -14,15 +15,27 @@ def main(data_path):
 
     print(f"found {len(data)} well-named files")
 
+    outlier_file_names(data)
     file_names_minute_allignment(data, allign=6)
     plt.show(block=True)
 
 
+def outlier_file_names(file_name_data):
+    med = median(file_name_data)
+    dev = stdev(file_name_data)
+    outliers = list(
+            filter(
+                lambda num: abs(num - med) > 3*dev,
+                file_name_data
+            )
+        )
+    print(f"found {len(outliers)} outliers")
+    file_names_minute_allignment(outliers, allign=10, name="Outlier Allignment")
 
 
-def file_names_minute_allignment(file_name_data, allign=2):
+def file_names_minute_allignment(file_name_data, allign=2, name="File Names % 60"):
     fig, ax = plt.subplots()
-    ax.set_title("File names % 60")
+    ax.set_title(name)
     N, bins, patches = ax.hist(list(map(lambda num: (num % 3600) / 60.0, file_name_data)), bins=60, range=(0, 60))
     for b, p in zip(bins, patches):
         if b%allign == 0 or (b+1)%allign == 0:
