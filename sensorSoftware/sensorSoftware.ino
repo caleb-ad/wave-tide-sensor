@@ -17,8 +17,8 @@
 // measurements will occurr on mulitples of this value after the hour
 #define MINUTE_ALLIGN 6//minutes
 #define MEASUREMENT_HZ 5.64 //MB 7388 (10 meter sensor)
-
 //#define EFF_HZ 6.766 //MB 7388 (5 meter sensor)
+
 #define celsius_to_fahrenheit(__celsius) ((__celsius) * 9.0 / 5.0 + 32.0)
 #define GMT_to_PST(__GMT) (((__GMT) + 17) % 24)
 
@@ -57,8 +57,6 @@ char format_buf[FORMAT_BUF_SIZE];
 // GPS ISR and Serial1 callback variables
 uint32_t num_gps_reads = 0;
 volatile bool measurement_request = false;
-
-const uint32_t sd_sector_size = SD.sectorSize();
 
 //Objects to manage peripherals
 Adafruit_GPS GPS(&Serial2);
@@ -187,7 +185,6 @@ void loop(void) {
     if(rtc_clk_usecs(clock_start) >= READ_TIME * 1000000){
         writeLog("Finished measurement");
 
-        //Free allocated data
         //close data_file makes sure all data is written to SD card before cleaning up resources
         data_file.close();
 
