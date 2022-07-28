@@ -62,7 +62,7 @@ RTC_DATA_ATTR uint64_t sleep_cycles = 0;
 char format_buf[FORMAT_BUF_SIZE];
 
 // GPS ISR and Serial1 callback variables
-uint32_t num_gps_reads = 0;
+volatile uint32_t num_gps_reads = 0;
 volatile bool measurement_request = false;
 
 //Objects to manage peripherals
