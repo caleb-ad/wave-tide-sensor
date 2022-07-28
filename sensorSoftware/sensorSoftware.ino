@@ -8,14 +8,21 @@
 #include "Adafruit_GPS.h"
 #include "UnixTime.h"
 
-//comment out this line if monitoring over Serial is unneccesary
-// #define DEBUG
-
-// values of 'READ_TIME' more than 10 minutes usually require too much memory
+//-------CONFIGURATION-------//
+//comment out this line if monitoring over Serial is not desired
+#define DEBUG
 #define READ_TIME 2 * 60//Length of time to measure (in seconds)
 
-// measurements will occurr on mulitples of this value after the hour
+// in non-continuous measurement mode measurements will be READ_TIME long and
+// centered on mulitples of this value after the hour
 #define MINUTE_ALLIGN 6//minutes
+
+// in continuous measurement mode the device never goes to sleep,
+// data is stored in the Data folder, a new file is created every READ_TIME seconds
+#define CONTINUOUS
+//--------------------------//
+
+
 #define MEASUREMENT_HZ 5.64 //MB 7388 (10 meter sensor)
 //#define EFF_HZ 6.766 //MB 7388 (5 meter sensor)
 
@@ -107,11 +114,10 @@ void setup(void) {
     writeLog("Serial Ports Enabled");
 
 
-
     //Run Setup, check SD file every 1000th wake cycle
     if ((wakeCounter % 1000) == 0) {
         wakeCounter = 0;
-        sdBegin();
+        sd_card_init();
         //TODO get measurements to allign with 15 min intervals
         //TODO wait for GPS to get fix?
     }
@@ -149,14 +155,7 @@ void setup(void) {
     pinMode(LED_BUILTIN, OUTPUT);
     writeLog("LEDs enabled");
 
-    //Create string for new file name
-    //if the gps has updated its time in the last read cycle use that time to name the file
-    //filenames are at most 8 characters + 6("/Data/") + 4(".txt") + null terminator = 19
-    if(GPS_has_fix(GPS) || sleep_time != 0) snprintf(format_buf, 19 , "/Data/%x.txt", getTime().getUnix());
-    else snprintf(format_buf, 19, "/Data/%x_%x.txt", wakeCounter, millis());
-    data_file.printf("%f, %f, %f\n", latitude_signed(GPS), longitude_signed(GPS), GPS.altitude);
-    data_file = SD.open(format_buf, FILE_WRITE, true);
-    assert(data_file);
+    data_file = create_file();
 
     #ifdef DEBUG
     Serial.begin(115200); //Serial monitor
@@ -183,12 +182,17 @@ void loop(void) {
         readData(data_file);
     }
     if(rtc_clk_usecs(clock_start) >= READ_TIME * 1000000){
+        #ifdef CONTINUOUS
+        data_file.close();
+        data_file = create_file();
+        #else
         writeLog("Finished measurement");
 
         //close data_file makes sure all data is written to SD card before cleaning up resources
         data_file.close();
 
         goto_sleep();
+        #endif
     }
 }
 
@@ -308,7 +312,7 @@ sensorData readData(File &data_file){
 }
 
 //Check or create header file
-void sdBegin(void)
+void sd_card_init(void)
 {
     //Check if file exists and create one if not
     if (!SD.exists("/README.txt"))
@@ -329,6 +333,19 @@ void sdBegin(void)
 
         SD.mkdir("/Data");
     }
+}
+
+//Creates a file in the Data folder
+//if the GPS has had a fix or has a fix the file is named using the current time in hex.
+//otherwise the file is named wakecount_millisecondsawake
+File create_file() {
+    //filenames are at most 8 characters + 6("/Data/") + 4(".txt") + null terminator = 19
+    if(GPS_has_fix(GPS) || sleep_time != 0) snprintf(format_buf, 19 , "/Data/%x.txt", getTime().getUnix());
+    else snprintf(format_buf, 19, "/Data/%x_%x.txt", wakeCounter, millis());
+    File file = SD.open(format_buf, FILE_WRITE, true);
+    assert(file);
+    file.printf("%f, %f, %f\n", latitude_signed(GPS), longitude_signed(GPS), GPS.altitude);
+    return file;
 }
 
 //Powers down all peripherals, Sleeps until woken after set interval, runs setup() again
