@@ -183,6 +183,8 @@ void loop(void) {
     if(rtc_clk_usecs(clock_start) >= READ_TIME * 1000000){
         #ifdef CONTINUOUS
         data_file.close();
+        sleep_time = getTime().getUnix();
+        clock_start = rtc_time_get();
         data_file = create_file();
         #else
         writeLog("Finished measurement");
