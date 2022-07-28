@@ -181,17 +181,15 @@ void loop(void) {
         readData(data_file);
     }
     if(rtc_clk_usecs(clock_start) >= READ_TIME * 1000000){
+        writeLog("Finished measurement");
         #ifdef CONTINUOUS
         data_file.close();
         sleep_time = getTime().getUnix();
         clock_start = rtc_time_get();
         data_file = create_file();
         #else
-        writeLog("Finished measurement");
-
         //close data_file makes sure all data is written to SD card before cleaning up resources
         data_file.close();
-
         goto_sleep();
         #endif
     }
@@ -342,7 +340,6 @@ File create_file() {
     else snprintf(format_buf, 19, "/Data/%x_%x.txt", wakeCounter, millis());
     File file = SD.open(format_buf, FILE_WRITE, true);
     assert(file);
-    file.printf("%f, %f, %f\n", latitude_signed(GPS), longitude_signed(GPS), GPS.altitude);
     return file;
 }
 
@@ -390,6 +387,7 @@ void writeLog(const char* message)
     File logFile = SD.open("/logFile.txt", FILE_WRITE);
     if(!logFile) return;
     //logFile.seek(logFile.size());
-    logFile.printf("%d/%d/20%d, %s: %s\nwake count: %d", GPS.month, GPS.day, GPS.year, displayTime(getTime()), message, wakeCounter);
+    logFile.printf("%d/%d/20%d, %s: %s\nwake count: %d\n", GPS.month, GPS.day, GPS.year, displayTime(getTime()), message, wakeCounter);
+    if(GPS_has_fix(GPS)) logFile.printf("%f, %f, %f\n", latitude_signed(GPS), longitude_signed(GPS), GPS.altitude);
     logFile.close();
 }
