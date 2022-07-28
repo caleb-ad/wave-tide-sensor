@@ -228,8 +228,6 @@ UnixTime getTime(void)
     return stamp;
 }
 
-//*Functions which use 'format_buf'*/
-
 //human readable time, in PST
 char* displayTime(UnixTime now) {
     snprintf(format_buf, FORMAT_BUF_SIZE, "%02d:%02d:%02d.%03d", GMT_to_PST(now.hour), now.minute, now.second, (millis() - gps_millis_offset)%1000);
@@ -240,7 +238,6 @@ char* unixTime(UnixTime now) {
     snprintf(format_buf, FORMAT_BUF_SIZE, "%d.%03d", now.getUnix(), (millis() - gps_millis_offset)%1000);
     return format_buf;
 }
-//*End: Functions which use 'format_buf'*/
 
 // return signed latitude with the convention that north of the equator is positve
 inline float latitude_signed(Adafruit_GPS &gps) {
