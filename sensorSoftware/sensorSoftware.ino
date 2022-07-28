@@ -9,8 +9,7 @@
 #include "UnixTime.h"
 
 //-------CONFIGURATION-------//
-//comment out this line if monitoring over Serial is not desired
-#define DEBUG
+#define DEBUG //comment out this line if monitoring over Serial is not desired
 #define READ_TIME 2 * 60//Length of time to measure (in seconds)
 
 // in non-continuous measurement mode measurements will be READ_TIME long and
@@ -19,7 +18,7 @@
 
 // in continuous measurement mode the device never goes to sleep,
 // data is stored in the Data folder, a new file is created every READ_TIME seconds
-#define CONTINUOUS
+#define CONTINUOUS //comment out this line if non-continuous measurement is desired
 //--------------------------//
 
 
@@ -62,7 +61,7 @@ RTC_DATA_ATTR uint64_t sleep_cycles = 0;
 char format_buf[FORMAT_BUF_SIZE];
 
 // GPS ISR and Serial1 callback variables
-uint32_t num_gps_reads = 0;
+volatile uint32_t num_gps_reads = 0;
 volatile bool measurement_request = false;
 
 //Objects to manage peripherals
