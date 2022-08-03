@@ -18,7 +18,7 @@
 
 // in continuous measurement mode the device never goes to sleep,
 // data is stored in the Data folder, a new file is created every READ_TIME seconds
-#define CONTINUOUS //comment out this line if non-continuous measurement is desired
+// #define CONTINUOUS //comment out this line if non-continuous measurement is desired
 //--------------------------//
 
 
@@ -332,7 +332,7 @@ void sd_card_init(void)
 }
 
 //Creates a file in the Data folder
-//if the GPS has had a fix or has a fix the file is named using the current time in hex.
+//if the GPS has had a fix or has had a fix the file is named using the current time in hex.
 //otherwise the file is named wakecount_millisecondsawake
 File create_file() {
     //filenames are at most 8 characters + 6("/Data/") + 4(".txt") + null terminator = 19
