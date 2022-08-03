@@ -19,8 +19,8 @@ def main(data_path):
 
     print(f"found {len(data)} well-named files")
 
-    # outlier_file_names(data)
-    # file_names_minute_allignment(data, allign=6)
+    outlier_file_names(data)
+    file_names_minute_allignment(data, allign=6)
     measurement_density(data)
     plt.show(block=True)
 
