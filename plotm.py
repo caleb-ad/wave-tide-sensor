@@ -27,13 +27,6 @@ class datum:
         self.hum  += other.hum
         return self
 
-    def __isub__(self, other):
-        self.time -= other.time
-        self.dist -= other.dist
-        self.temp -= other.temp
-        self.hum  -= other.hum
-        return self
-
     def apply(self, func):
         self.time = int(func(self.time))
         self.dist = int(func(self.dist))
@@ -63,8 +56,7 @@ def main(data_path, multiple_sets, file_names):
                 if sub_data_folder.name == "Data":
                     # data.append(remove_outliers_by_delta(remove_outliers(collect_data(sub_data_folder.path), key=lambda d:d.time), key=lambda d:d.dist))
                     data.append(condense(remove_outliers_by_delta(remove_outliers(
-                        collect_data(sub_data_folder.path), key=lambda d:d.time), key=lambda d:d.dist), 60, key=lambda d:d.time))
-
+                        collect_data(sub_data_folder.path), key=lambda d:d.time), key=lambda d:d.dist), 5, key=lambda d:d.time))
         graph_data_compare(data)
 
     if file_names:
@@ -191,7 +183,7 @@ def graph_data(wave_data):
 def graph_data_compare(wave_data_sets):
     times = [data.time for wave_data in wave_data_sets for data in wave_data ]
     dists = [data.dist_corrected() for wave_data in wave_data_sets for data in wave_data ]
-    color = [idx + 1 for idx in range(len(wave_data_sets)) for i in range(len(wave_data_sets[idx]))]
+    color = [idx for idx in range(len(wave_data_sets)) for i in range(len(wave_data_sets[idx]))]
 
     fig, ax = plt.subplots()
     ax.set_title("Water Height")
