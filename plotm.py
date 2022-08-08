@@ -195,7 +195,7 @@ def graph_data_compare(wave_data_sets):
 
 def condense(data, threshhold, key=lambda x:x):
     current = data[0]
-    current_size = 0
+    current_size = 1
     condensed = []
     for idx in range(1, len(data)):
         if abs(key(data[idx]) - key(data[idx - 1])) < threshhold:
@@ -206,7 +206,7 @@ def condense(data, threshhold, key=lambda x:x):
                 current.apply(lambda x: x / current_size)
                 condensed.append(current)
             current = data[idx]
-            current_size = 0
+            current_size = 1
 
     return condensed
 
