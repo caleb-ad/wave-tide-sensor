@@ -55,8 +55,10 @@ def main(data_path, multiple_sets, file_names):
             for sub_data_folder in filter(lambda de: not de.is_file(), os.scandir(data_folder.path)):
                 if sub_data_folder.name == "Data":
                     # data.append(remove_outliers_by_delta(remove_outliers(collect_data(sub_data_folder.path), key=lambda d:d.time), key=lambda d:d.dist))
-                    data.append(condense(remove_outliers_by_delta(remove_outliers(
-                        collect_data(sub_data_folder.path), key=lambda d:d.time), key=lambda d:d.dist), 5, key=lambda d:d.time))
+                    # data.append(condense(remove_outliers_by_delta(remove_outliers(
+                    #     collect_data(sub_data_folder.path), key=lambda d:d.time), key=lambda d:d.dist), 5, key=lambda d:d.time))
+                    data.append(tare(condense(remove_outliers_by_delta(remove_outliers(
+                        collect_data(sub_data_folder.path), key=lambda d:d.time), key=lambda d:d.dist), 5, key=lambda d:d.time)))
         graph_data_compare(data)
 
     if file_names:
@@ -217,7 +219,11 @@ def tare(data):
 
 
 def variation_statistics(wave_data_sets):
+    WINDOW_SIZE = 60
     wave_data_sets = [tare(wave_data) for wave_data in wave_data_sets]
+    diffs = {}
+    for idx in range(min([len(wave_data) for wave_data in wave_data_sets])):
+        pass
 
 
 #Example command to run this script from a shell in the same directory:
