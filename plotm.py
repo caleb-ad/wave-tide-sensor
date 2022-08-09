@@ -55,17 +55,16 @@ def main(data_path, multiple_sets, file_names):
         for data_folder in filter(lambda de: not de.is_file(),  os.scandir(data_path)):
             for sub_data_folder in filter(lambda de: not de.is_file(), os.scandir(data_folder.path)):
                 if sub_data_folder.name == "Data":
-                    # data.append(remove_outliers_by_delta(remove_outliers(collect_data(sub_data_folder.path), key=lambda d:d.time), key=lambda d:d.dist))
-                    # data.append(condense(remove_outliers_by_delta(remove_outliers(
-                    #     collect_data(sub_data_folder.path), key=lambda d:d.time), key=lambda d:d.dist), 5, key=lambda d:d.time))
+                    raw = remove_outliers(collect_data(sub_data_folder.path), key=lambda d:d.time)
+                    data.append(smooth(remove_outliers_by_delta(condense(raw, 5, key=lambda d:d.time), key=lambda d:d.dist)))
                     # data.append(tare(condense(remove_outliers_by_delta(remove_outliers(collect_data(sub_data_folder.path),
                     #     key=lambda d:d.time),
                     #     key=lambda d:d.dist), 5,
                     #     key=lambda d:d.time)))
-                    data.append(smooth(remove_outliers_by_delta(condense(remove_outliers(collect_data(sub_data_folder.path),
-                        key=lambda d:d.time),
-                        5, key=lambda d:d.time),
-                        key=lambda d:d.dist)))
+                    # data.append(smooth(remove_outliers_by_delta(condense(remove_outliers(collect_data(sub_data_folder.path),
+                    #     key=lambda d:d.time),
+                    #     5, key=lambda d:d.time),
+                    #     key=lambda d:d.dist)))
 
         graph_data_compare(data)
         # variation_statistics(data, 6 * 60, 2 * 60)
@@ -162,7 +161,9 @@ def remove_outliers(wave_data, key=lambda x: x):
 
 
 def remove_outliers_by_delta(data, key=lambda x: x):
-    BUF_SIZE = 20
+    # when BUF_SIZE is small, delta_buf_squre_sum may become less than 0 due to floating point imprecision,
+    # in this case sqrt() will throw an error
+    BUF_SIZE = 40
     delta_buf = deque([abs(key(data[i]) - key(data[i-1])) for i in range(1, min(BUF_SIZE, len(data)))])
     delta_buf_sum = sum(delta_buf)
     delta_buf_squares = deque(map(lambda x:(x - delta_buf_sum / BUF_SIZE) * (x - delta_buf_sum / BUF_SIZE), delta_buf))
@@ -232,7 +233,7 @@ def condense(data, threshhold, key=lambda x:x):
 
 
 def smooth(data):
-    BUF_SIZE = 5
+    BUF_SIZE = 6
     avg_buf = deque(data[:BUF_SIZE])
     smoothed = []
     for i in range(min(BUF_SIZE, len(data))):
