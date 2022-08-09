@@ -57,13 +57,17 @@ def main(data_path, multiple_sets, file_names):
                     # data.append(remove_outliers_by_delta(remove_outliers(collect_data(sub_data_folder.path), key=lambda d:d.time), key=lambda d:d.dist))
                     # data.append(condense(remove_outliers_by_delta(remove_outliers(
                     #     collect_data(sub_data_folder.path), key=lambda d:d.time), key=lambda d:d.dist), 5, key=lambda d:d.time))
-                    data.append(tare(condense(remove_outliers_by_delta(remove_outliers(collect_data(sub_data_folder.path),
+                    # data.append(tare(condense(remove_outliers_by_delta(remove_outliers(collect_data(sub_data_folder.path),
+                    #     key=lambda d:d.time),
+                    #     key=lambda d:d.dist), 5,
+                    #     key=lambda d:d.time)))
+                    data.append(smooth(remove_outliers_by_delta(condense(remove_outliers(collect_data(sub_data_folder.path),
                         key=lambda d:d.time),
-                        key=lambda d:d.dist), 5,
-                        key=lambda d:d.time)))
+                        key=lambda d:d.time),
+                        key=lambda d:d.dist)))
 
         graph_data_compare(data)
-        variation_statistics(data, 6 * 60, 2 * 60)
+        # variation_statistics(data, 6 * 60, 2 * 60)
 
     if file_names:
         data_files = collect_filenames(data_path)
@@ -163,7 +167,7 @@ def remove_outliers_by_delta(data, key=lambda x: x):
     prev = key(data[0])
     for datum in data:
         datum_key = key(datum)
-        if datum_key - prev < median(delta_buf):
+        if datum_key - prev <= median(delta_buf):
             corrected.append(datum)
         delta_buf.pop()
         delta_buf.appendleft(datum_key - prev)
@@ -217,8 +221,26 @@ def condense(data, threshhold, key=lambda x:x):
     return condensed
 
 
+def smooth(data):
+    BUF_SIZE = 5
+    avg_buf = deque(data[:BUF_SIZE])
+    smoothed = []
+    for i in range(min(BUF_SIZE, len(data))):
+        smoothed.append(data[i])
+        smoothed[-1].dist = mean(map(lambda d: d.dist, avg_buf))
+        avg_buf.popleft()
+        avg_buf.append(data[i + BUF_SIZE])
+    avg_buf = deque(data[:BUF_SIZE])
+    for i in range(min(BUF_SIZE, len(data)), len(data)):
+        smoothed.append(data[i - 1])
+        smoothed[-1].dist = mean(map(lambda d: d.dist, avg_buf))
+        avg_buf.popleft()
+        avg_buf.append(data[i])
+    return smoothed
+
+
 def tare(data):
-    d_mean = mean(list(map(lambda d: d.dist, data)))
+    d_mean = mean(map(lambda d: d.dist, data))
     for datum in data: datum.dist -= d_mean
     return data
 
