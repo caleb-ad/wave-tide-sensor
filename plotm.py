@@ -57,9 +57,13 @@ def main(data_path, multiple_sets, file_names):
                     # data.append(remove_outliers_by_delta(remove_outliers(collect_data(sub_data_folder.path), key=lambda d:d.time), key=lambda d:d.dist))
                     # data.append(condense(remove_outliers_by_delta(remove_outliers(
                     #     collect_data(sub_data_folder.path), key=lambda d:d.time), key=lambda d:d.dist), 5, key=lambda d:d.time))
-                    data.append(tare(condense(remove_outliers_by_delta(remove_outliers(
-                        collect_data(sub_data_folder.path), key=lambda d:d.time), key=lambda d:d.dist), 5, key=lambda d:d.time)))
+                    data.append(tare(condense(remove_outliers_by_delta(remove_outliers(collect_data(sub_data_folder.path),
+                        key=lambda d:d.time),
+                        key=lambda d:d.dist), 5,
+                        key=lambda d:d.time)))
+
         graph_data_compare(data)
+        variation_statistics(data, 6 * 60, 2 * 60)
 
     if file_names:
         data_files = collect_filenames(data_path)
@@ -214,16 +218,52 @@ def condense(data, threshhold, key=lambda x:x):
 
 
 def tare(data):
-    d_mean = mean(data)
-    return [datum - d_mean for datum in data]
+    d_mean = mean(list(map(lambda d: d.dist, data)))
+    for datum in data: datum.dist -= d_mean
+    return data
 
 
-def variation_statistics(wave_data_sets):
-    WINDOW_SIZE = 60
+def get_all_diffs(data):
+    diffs = []
+    for a in range(len(data)):
+        for b in range(len(data)):
+            if a != b:
+                diffs.append(abs(a-b))
+    return diffs
+
+
+def variation_statistics(wave_data_sets, allignment, read_time):
+    SEARCH_WIDTH = 15
     wave_data_sets = [tare(wave_data) for wave_data in wave_data_sets]
-    diffs = {}
-    for idx in range(min([len(wave_data) for wave_data in wave_data_sets])):
-        pass
+    diffs = []
+    times = []
+    non_empty_bucket = True
+    time_bucket = (wave_data_sets[0][0].time // 60) * 60
+    prev_idx = 0
+    while non_empty_bucket:
+        non_empty_bucket = False
+        min_next_idx = None
+        current = []
+        for list_idx in range(len(wave_data_sets)):
+            for search_idx in range(prev_idx, min(prev_idx + SEARCH_WIDTH, min([len(wave_data) for wave_data in wave_data_sets]))):
+                if abs(wave_data_sets[list_idx][search_idx].time - time_bucket) < read_time // 2:
+                    current.append(wave_data_sets[list_idx][search_idx].time)
+                    non_empty_bucket = True
+                    if min_next_idx is None or min_next_idx > search_idx: min_next_idx = search_idx
+        current = get_all_diffs(current)
+        diffs.extend(current)
+        times.extend([time_bucket] * len(current))
+        time_bucket += allignment
+        prev_idx = min_next_idx
+
+    fig, ax = plt.subplots()
+    ax.set_title("Measurement difference by time interval")
+    ax.set_xlabel(f"Unix Time [seconds]")
+    ax.set_ylabel("Diff [mm]")
+    ax.annotate(f"max diff: {max(diffs)}\nmin diff: {min(diffs)}\nmean diff: {mean(diffs)}", xy=(0, 1), xycoords="axes fraction")
+    ax.scatter(times, diffs, linewidths=.1)
+
+
 
 
 #Example command to run this script from a shell in the same directory:
