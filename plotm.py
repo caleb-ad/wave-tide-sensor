@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from statistics import median, stdev, mean
 from collections import deque
+from math import sqrt
 import os
 import sys
 
@@ -63,7 +64,7 @@ def main(data_path, multiple_sets, file_names):
                     #     key=lambda d:d.time)))
                     data.append(smooth(remove_outliers_by_delta(condense(remove_outliers(collect_data(sub_data_folder.path),
                         key=lambda d:d.time),
-                        key=lambda d:d.time),
+                        5, key=lambda d:d.time),
                         key=lambda d:d.dist)))
 
         graph_data_compare(data)
@@ -162,15 +163,24 @@ def remove_outliers(wave_data, key=lambda x: x):
 
 def remove_outliers_by_delta(data, key=lambda x: x):
     BUF_SIZE = 20
-    delta_buf = deque([key(data[i]) - key(data[i-1]) for i in range(1, min(BUF_SIZE, len(data)))])
+    delta_buf = deque([abs(key(data[i]) - key(data[i-1])) for i in range(1, min(BUF_SIZE, len(data)))])
+    delta_buf_sum = sum(delta_buf)
+    delta_buf_squares = deque(map(lambda x:(x - delta_buf_sum / BUF_SIZE) * (x - delta_buf_sum / BUF_SIZE), delta_buf))
+    delta_buf_square_sum = sum(delta_buf_squares)
     corrected = []
     prev = key(data[0])
     for datum in data:
         datum_key = key(datum)
-        if datum_key - prev <= median(delta_buf):
+        next_delta = abs(datum_key - prev)
+        current_mean = delta_buf_sum / BUF_SIZE
+        if next_delta <= current_mean + sqrt(delta_buf_square_sum) / BUF_SIZE :
             corrected.append(datum)
-        delta_buf.pop()
-        delta_buf.appendleft(datum_key - prev)
+        delta_buf_sum -= delta_buf.popleft()
+        delta_buf_square_sum -= delta_buf_squares.popleft()
+        delta_buf.append(next_delta)
+        delta_buf_sum += next_delta
+        delta_buf_squares.append((next_delta - current_mean) * (next_delta - current_mean))
+        delta_buf_square_sum += delta_buf_squares[-1]
         prev = datum_key
 
     return corrected
