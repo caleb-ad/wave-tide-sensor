@@ -18,7 +18,7 @@
 
 // in continuous measurement mode the device never goes to sleep,
 // data is stored in the Data folder, a new file is created every READ_TIME seconds
-// #define CONTINUOUS //comment out this line if non-continuous measurement is desired
+#define CONTINUOUS //comment out this line if non-continuous measurement is desired
 //--------------------------//
 
 

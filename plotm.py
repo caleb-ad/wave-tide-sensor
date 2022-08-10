@@ -4,6 +4,7 @@ import matplotlib.colors as mcolors
 from statistics import median, stdev, mean
 from collections import deque
 from math import sqrt
+import time
 import os
 import sys
 
@@ -47,24 +48,22 @@ class datum:
         return datum(time, dist, temp, hum)
 
 
-def main(data_path, multiple_sets, file_names):
+def main(data_path, multiple_sets, file_names, stilltek_path):
     data_files = []
     data = []
+
+    if stilltek_path is not None:
+        data.append(get_stilltek(stilltek_path))
+        if not multiple_sets:
+            graph_data(data[0])
 
     if multiple_sets:
         for data_folder in filter(lambda de: not de.is_file(),  os.scandir(data_path)):
             for sub_data_folder in filter(lambda de: not de.is_file(), os.scandir(data_folder.path)):
                 if sub_data_folder.name == "Data":
                     raw = remove_outliers(collect_data(sub_data_folder.path), key=lambda d:d.time)
-                    data.append(smooth(remove_outliers_by_delta(condense(raw, 5, key=lambda d:d.time), key=lambda d:d.dist)))
-                    # data.append(tare(condense(remove_outliers_by_delta(remove_outliers(collect_data(sub_data_folder.path),
-                    #     key=lambda d:d.time),
-                    #     key=lambda d:d.dist), 5,
-                    #     key=lambda d:d.time)))
-                    # data.append(smooth(remove_outliers_by_delta(condense(remove_outliers(collect_data(sub_data_folder.path),
-                    #     key=lambda d:d.time),
-                    #     5, key=lambda d:d.time),
-                    #     key=lambda d:d.dist)))
+                    data.append(raw)
+                    # data.append(smooth(remove_outliers_by_delta(condense(raw, 5, key=lambda d:d.time), key=lambda d:d.dist)))
 
         graph_data_compare(data)
         # variation_statistics(data, 6 * 60, 2 * 60)
@@ -188,7 +187,6 @@ def remove_outliers_by_delta(data, key=lambda x: x):
 
 
 def graph_data(wave_data):
-    wave_data.sort(key=lambda data: data.time)
     start = wave_data[0].time
     times = list(map(lambda data: data.time - start, wave_data))
     dists = list(map(lambda d: d.dist_corrected(), wave_data))
@@ -214,6 +212,7 @@ def graph_data_compare(wave_data_sets):
     # plt.plot(times, dists, linestyle='-')
 
 
+#condensing in time tends to remove outliers in space, when a box measurement briefly jumps to a large value for a portion of a measurement period
 def condense(data, threshhold, key=lambda x:x):
     current = data[0]
     current_size = 1
@@ -234,19 +233,23 @@ def condense(data, threshhold, key=lambda x:x):
 
 def smooth(data):
     BUF_SIZE = 6
-    avg_buf = deque(data[:BUF_SIZE])
+    avg_buf = deque(map(lambda d: d.dist, data[:BUF_SIZE]))
+    avg_buf_sum = sum(avg_buf)
     smoothed = []
     for i in range(min(BUF_SIZE, len(data))):
         smoothed.append(data[i])
-        smoothed[-1].dist = mean(map(lambda d: d.dist, avg_buf))
-        avg_buf.popleft()
-        avg_buf.append(data[i + BUF_SIZE])
-    avg_buf = deque(data[:BUF_SIZE])
+        smoothed[-1].dist = avg_buf_sum / BUF_SIZE
+        avg_buf_sum -= avg_buf.popleft()
+        avg_buf_sum += data[i].dist
+        avg_buf.append(data[i].dist)
+    avg_buf = deque(map(lambda d: d.dist, data[:BUF_SIZE]))
+    avg_buf_sum = sum(avg_buf)
     for i in range(min(BUF_SIZE, len(data)), len(data)):
         smoothed.append(data[i - 1])
-        smoothed[-1].dist = mean(map(lambda d: d.dist, avg_buf))
-        avg_buf.popleft()
-        avg_buf.append(data[i])
+        smoothed[-1].dist = avg_buf_sum / BUF_SIZE
+        avg_buf_sum -= avg_buf.popleft()
+        avg_buf_sum += data[i].dist
+        avg_buf.append(data[i].dist)
     return smoothed
 
 
@@ -297,15 +300,30 @@ def variation_statistics(wave_data_sets, allignment, read_time):
     ax.scatter(times, diffs, linewidths=.1)
 
 
+def get_stilltek(csv_path):
+    data = []
+    with open(csv_path) as data_file:
+        data_file.readline() #header line
+        for line in data_file.readlines():
+            values = line.split(',')
+            data.append(datum(
+                int(time.mktime(time.strptime(values[0], "20%y-%m-%d %H:%M:%S"))),
+                int(-1.0 * float(values[1]) * 304.79999024640034), #millimeters,
+                float(values[2]), #farenheight,
+                -1
+            ))
+    return data
 
 
 #Example command to run this script from a shell in the same directory:
-#python plotm.py "D:\Data" 1 0
+#python plotm.py "D:\Data" -m
 if __name__ == "__main__":
-    if len(sys.argv) > 3:
-        main(sys.argv[1], bool(sys.argv[2]), bool(sys.argv[3]))
-    elif len(sys.argv) > 2:
-        main(sys.argv[1], bool(sys.argv[2]), False)
-    elif len(sys.argv) > 1:
-        main(sys.argv[1], False, False)
+    if len(sys.argv) > 1:
+        multiple_flag = "-m" in sys.argv
+        file_name_analysis_flag = "-f" in sys.argv
+        stilltek_path = None
+        try:
+            stilltek_path = sys.argv[sys.argv.index("-s") + 1]
+        except(ValueError): pass
+        main(sys.argv[1], multiple_flag, file_name_analysis_flag, stilltek_path)
 
