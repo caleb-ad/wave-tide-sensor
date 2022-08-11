@@ -62,10 +62,10 @@ def main(data_path, multiple_sets, file_names, stilltek_path):
             for sub_data_folder in filter(lambda de: not de.is_file(), os.scandir(data_folder.path)):
                 if sub_data_folder.name == "Data":
                     raw = remove_outliers(collect_data(sub_data_folder.path), key=lambda d:d.time)
-                    data.append(raw)
-                    # data.append(smooth(remove_outliers_by_delta(condense(raw, 5, key=lambda d:d.time), key=lambda d:d.dist)))
+                    # data.append(raw)
+                    data.append(smooth(remove_outliers_by_delta(condense(raw, 5, key=lambda d:d.time), key=lambda d:d.dist)))
 
-        graph_data_compare(data)
+        graph_data_compare(data, color_list=["blue", "crimson", "purple", "lime"], marker_list=['D', '<', '^', '>', 'v'])
         # variation_statistics(data, 6 * 60, 2 * 60)
 
     if file_names:
@@ -75,7 +75,7 @@ def main(data_path, multiple_sets, file_names, stilltek_path):
         measurement_density(data_files)
         print(f"found {len(data_files)} well-named files")
 
-    if not multiple_sets and not file_names:
+    if not multiple_sets and not file_names and stilltek_path is None:
         graph_data(remove_outliers(collect_data(data_path), key=lambda data: data.time))
 
     plt.show(block=True)
@@ -199,16 +199,21 @@ def graph_data(wave_data):
     # plt.plot(times, dists, linestyle='-')
 
 
-def graph_data_compare(wave_data_sets):
+def graph_data_compare(wave_data_sets, color_list=[], marker_list=[]):
     times = [data.time for wave_data in wave_data_sets for data in wave_data ]
     dists = [data.dist_corrected() for wave_data in wave_data_sets for data in wave_data ]
     color = [idx for idx in range(len(wave_data_sets)) for i in range(len(wave_data_sets[idx]))]
 
     fig, ax = plt.subplots()
-    ax.set_title("Water Height")
+    ax.set_title("Distance to surface V.S. time")
     ax.set_xlabel(f"Unix Time [seconds]")
-    ax.set_ylabel("Height [mm]")
-    ax.scatter(times, dists, s=1.1, c=color, linewidths=.1)
+    ax.set_ylabel("Distance [mm]")
+    for (wave_data, idx) in zip(wave_data_sets, range(len(wave_data_sets))):
+        times = [data.time for data in wave_data]
+        dists = [data.dist_corrected() for data in wave_data]
+        marker = marker_list[idx] if idx < len(marker_list) else '.'
+        color = color_list[idx] if idx < len(color_list) else "teal"
+        ax.scatter(times, dists, s=3, linewidths=.3, marker=marker, color=color)
     # plt.plot(times, dists, linestyle='-')
 
 
@@ -306,8 +311,11 @@ def get_stilltek(csv_path):
         data_file.readline() #header line
         for line in data_file.readlines():
             values = line.split(',')
+            m_time = time.strptime(values[0], "20%y-%m-%d %H:%M:%S")
             data.append(datum(
-                int(time.mktime(time.strptime(values[0], "20%y-%m-%d %H:%M:%S"))),
+                # mktime expects value in local time, PST. The stilltek data and our data is in UTC
+                # so we need to roll back the result of mktime to get a value in UTC
+                int(time.mktime(m_time) - 7 * 3600),
                 int(-1.0 * float(values[1]) * 304.79999024640034), #millimeters,
                 float(values[2]), #farenheight,
                 -1
@@ -315,8 +323,10 @@ def get_stilltek(csv_path):
     return data
 
 
-#Example command to run this script from a shell in the same directory:
-#python plotm.py "D:\Data" -m
+#Example command to plot a single data set in D:/Data:
+#python plotm.py "D:\Data"
+#Example command to compare multiple data sets in "Data" with stilltek data located in "Data/CalPoly Tide Gauge.csv"
+#python plotm.py Data -m -s "Data/CalPoly Tide Gauge.csv"
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         multiple_flag = "-m" in sys.argv
