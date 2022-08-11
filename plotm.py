@@ -39,6 +39,19 @@ class datum:
     def dist_corrected(self):
         return self.dist
 
+    def get_dist(d, assign=None):
+        if assign is not None:
+            d.dist = assign
+        return d.dist
+
+    def get_temp(d, assign=None):
+        if assign is not None:
+            d.temp = assign
+        return d.temp
+
+    def get_time(d):
+        return d.time
+
     def from_str(data_str):
         data_str = data_str.split(", ")
         time = int(data_str[0][:data_str[0].find('.')])
@@ -48,24 +61,25 @@ class datum:
         return datum(time, dist, temp, hum)
 
 
-def main(data_path, multiple_sets, file_names, stilltek_path):
+def main(data_path, multiple_sets, file_names, temp_analysis, stilltek_path):
     data_files = []
     data = []
+    analysis_dim = datum.get_temp if temp_analysis else datum.get_dist
 
     if stilltek_path is not None:
         data.append(get_stilltek(stilltek_path))
         if not multiple_sets:
-            graph_data(data[0])
+            graph_data(data[0], dim=analysis_dim)
 
     if multiple_sets:
         for data_folder in filter(lambda de: not de.is_file(),  os.scandir(data_path)):
             for sub_data_folder in filter(lambda de: not de.is_file(), os.scandir(data_folder.path)):
                 if sub_data_folder.name == "Data":
-                    raw = remove_outliers(collect_data(sub_data_folder.path), key=lambda d:d.time)
+                    raw = remove_outliers(collect_data(sub_data_folder.path), key=datum.get_time)
                     # data.append(raw)
-                    data.append(smooth(remove_outliers_by_delta(condense(raw, 5, key=lambda d:d.time), key=lambda d:d.dist)))
+                    data.append(smooth(remove_outliers_by_delta(condense(raw, 5, key=datum.get_time), key=analysis_dim)))
 
-        graph_data_compare(data, color_list=["blue", "crimson", "purple", "lime"], marker_list=['D', '<', '^', '>', 'v'])
+        graph_data_compare(data, color_list=["blue", "crimson", "purple", "lime"], marker_list=['D', '<', '^', '>', 'v'], dim=analysis_dim)
         # variation_statistics(data, 6 * 60, 2 * 60)
 
     if file_names:
@@ -76,7 +90,7 @@ def main(data_path, multiple_sets, file_names, stilltek_path):
         print(f"found {len(data_files)} well-named files")
 
     if not multiple_sets and not file_names and stilltek_path is None:
-        graph_data(remove_outliers(collect_data(data_path), key=lambda data: data.time))
+        graph_data(remove_outliers(collect_data(data_path), key=datum.get_time), dim=analysis_dim)
 
     plt.show(block=True)
 
@@ -93,10 +107,10 @@ def collect_filenames(path):
 
 # read data from folder of data files
 def collect_data(path):
-    data_sets = []
+    data = []
     for data_file in filter(lambda de: de.is_file(), os.scandir(path)):
-        data_sets.extend(get_data(data_file.path))
-    return data_sets
+        data.extend(get_data(data_file.path))
+    return data
 
 
 # read data from file
@@ -186,34 +200,42 @@ def remove_outliers_by_delta(data, key=lambda x: x):
     return corrected
 
 
-def graph_data(wave_data):
+def graph_data(wave_data, dim=datum.get_dist):
     start = wave_data[0].time
     times = list(map(lambda data: data.time - start, wave_data))
-    dists = list(map(lambda d: d.dist_corrected(), wave_data))
-
+    dims = list(map(dim, wave_data))
     fig, ax = plt.subplots()
-    ax.set_title("Water Height")
-    ax.set_xlabel(f"Time since {start} [seconds]")
-    ax.set_ylabel("Height [mm]")
-    ax.scatter(times, dists, linewidths=.1)
+
+    if dim is datum.get_dist:
+        ax.set_title("Distance to surface V.S. time")
+        ax.set_xlabel("Unix Time [seconds]")
+        ax.set_ylabel("Distance [mm]")
+    else:
+        ax.set_title("Temperature V.S. time")
+        ax.set_xlabel("Unix Time [seconds]")
+        ax.set_ylabel("Temperature [F]")
+
+    ax.scatter(times, dims, s=3, linewidths=.1, color="teal")
     # plt.plot(times, dists, linestyle='-')
 
 
-def graph_data_compare(wave_data_sets, color_list=[], marker_list=[]):
-    times = [data.time for wave_data in wave_data_sets for data in wave_data ]
-    dists = [data.dist_corrected() for wave_data in wave_data_sets for data in wave_data ]
-    color = [idx for idx in range(len(wave_data_sets)) for i in range(len(wave_data_sets[idx]))]
-
+def graph_data_compare(wave_data_sets, dim=datum.get_dist, color_list=[], marker_list=[]):
     fig, ax = plt.subplots()
-    ax.set_title("Distance to surface V.S. time")
-    ax.set_xlabel(f"Unix Time [seconds]")
-    ax.set_ylabel("Distance [mm]")
+    if dim is datum.get_dist:
+        ax.set_title("Distance to surface V.S. time")
+        ax.set_xlabel("Unix Time [seconds]")
+        ax.set_ylabel("Distance [mm]")
+    else:
+        ax.set_title("Temperature V.S. time")
+        ax.set_xlabel("Unix Time [seconds]")
+        ax.set_ylabel("Temperature [F]")
+
     for (wave_data, idx) in zip(wave_data_sets, range(len(wave_data_sets))):
         times = [data.time for data in wave_data]
-        dists = [data.dist_corrected() for data in wave_data]
+        dims = [dim(data) for data in wave_data]
         marker = marker_list[idx] if idx < len(marker_list) else '.'
         color = color_list[idx] if idx < len(color_list) else "teal"
-        ax.scatter(times, dists, s=3, linewidths=.3, marker=marker, color=color)
+        ax.scatter(times, dims, s=3, linewidths=.3, marker=marker, color=color)
     # plt.plot(times, dists, linestyle='-')
 
 
@@ -236,25 +258,25 @@ def condense(data, threshhold, key=lambda x:x):
     return condensed
 
 
-def smooth(data):
+def smooth(data, dim=datum.get_dist):
     BUF_SIZE = 6
-    avg_buf = deque(map(lambda d: d.dist, data[:BUF_SIZE]))
+    avg_buf = deque(map(dim, data[:BUF_SIZE]))
     avg_buf_sum = sum(avg_buf)
     smoothed = []
     for i in range(min(BUF_SIZE, len(data))):
         smoothed.append(data[i])
-        smoothed[-1].dist = avg_buf_sum / BUF_SIZE
+        dim(smoothed[-1], assign=avg_buf_sum / BUF_SIZE)
         avg_buf_sum -= avg_buf.popleft()
-        avg_buf_sum += data[i].dist
-        avg_buf.append(data[i].dist)
-    avg_buf = deque(map(lambda d: d.dist, data[:BUF_SIZE]))
+        avg_buf_sum += dim(data[i])
+        avg_buf.append(dim(data[i]))
+    avg_buf = deque(map(dim, data[:BUF_SIZE]))
     avg_buf_sum = sum(avg_buf)
     for i in range(min(BUF_SIZE, len(data)), len(data)):
         smoothed.append(data[i - 1])
-        smoothed[-1].dist = avg_buf_sum / BUF_SIZE
+        dim(smoothed[-1], assign=avg_buf_sum / BUF_SIZE)
         avg_buf_sum -= avg_buf.popleft()
-        avg_buf_sum += data[i].dist
-        avg_buf.append(data[i].dist)
+        avg_buf_sum += dim(data[i])
+        avg_buf.append(dim(data[i]))
     return smoothed
 
 
@@ -331,9 +353,10 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         multiple_flag = "-m" in sys.argv
         file_name_analysis_flag = "-f" in sys.argv
+        temperature_analysis = "-t" in sys.argv
         stilltek_path = None
         try:
             stilltek_path = sys.argv[sys.argv.index("-s") + 1]
         except(ValueError): pass
-        main(sys.argv[1], multiple_flag, file_name_analysis_flag, stilltek_path)
+        main(sys.argv[1], multiple_flag, file_name_analysis_flag, temperature_analysis, stilltek_path)
 
