@@ -7,19 +7,33 @@
 #include "Adafruit_SHT31.h"
 #include "Adafruit_GPS.h"
 #include "UnixTime.h"
+#include <esp_now.h>
+#include <WiFi.h>
 
 //-------CONFIGURATION-------//
 #define DEBUG //comment out this line if monitoring over Serial is not desired
-#define READ_TIME 2 * 60//Length of time to measure (in seconds)
+#define READ_TIME 0.5 * 60//Length of time to measure (in seconds)
 
 // in non-continuous measurement mode measurements will be READ_TIME long and
 // centered on mulitples of this value after the hour
-#define MINUTE_ALLIGN 6//minutes
+#define MINUTE_ALLIGN 2//minutes
 
 // in continuous measurement mode the device never goes to sleep,
 // data is stored in the Data folder, a new file is created every READ_TIME seconds
-#define CONTINUOUS //comment out this line if non-continuous measurement is desired
+//#define CONTINUOUS //comment out this line if non-continuous measurement is desired
 //--------------------------//
+
+
+
+
+//------COMMUNICATION-------//
+// MAC address of receiver module
+#define SENSOR_ID 1
+uint8_t broadcastAddress1[] = {0xC8, 0xC9, 0xA3, 0xC6, 0x1B, 0x44};
+esp_now_peer_info_t peerInfo;
+//--------------------------//
+
+
 
 
 #define MEASUREMENT_HZ 5.64 //MB 7388 (10 meter sensor)
@@ -74,9 +88,25 @@ struct sensorData {
     float tempExt;
     float humExt;
     int dist;
-
     int repr(char *buf, uint32_t n);
 };
+
+typedef struct sendStruct
+{
+  uint16_t sendYear;
+  uint8_t sendMonth;
+  uint8_t sendDay;
+  uint8_t sendHour;
+  uint8_t sendMinute;
+  uint8_t sendSecond;
+  uint8_t sendDayOfWeek;
+  int sendDist;
+  float sendTemp;
+  float sendHum;
+  int gaugeID;
+} sendStruct;
+
+sendStruct sendData;
 
 // every 10ms schedule a read from the GPS, when
 bool gps_polling_isr(void* arg) {
@@ -95,6 +125,29 @@ void sonarDataReady(void) {
 }
 
 void setup(void) {
+
+    //------COMMUNICATION-------//
+    WiFi.mode(WIFI_STA);
+    
+    if (esp_now_init() != ESP_OK)
+    {
+      Serial.println("Error initializing ESP-NOW");
+      return;
+    }
+    esp_now_register_send_cb(OnDataSent);
+
+    // register peer
+    peerInfo.channel = 0;  
+    peerInfo.encrypt = false;
+    memcpy(peerInfo.peer_addr, broadcastAddress1, 6);
+
+    if (esp_now_add_peer(&peerInfo) != ESP_OK)
+    {
+      Serial.println("Failed to add peer");
+      return;
+    }
+    
+    //--------------------------//
     // Clock cycle count when we begin measuring
     clock_start = rtc_time_get();
 
@@ -295,6 +348,22 @@ sensorData readData(File &data_file){
     datum.tempExt = celsius_to_fahrenheit(tempSensor.readTemperature());
     datum.humExt = tempSensor.readHumidity();
 
+
+    //------COMMUNICATION-------//
+    sendData.sendYear = datum.time.year;
+    sendData.sendMonth = datum.time.month;
+    sendData.sendDay = datum.time.day;
+    sendData.sendHour = datum.time.hour;
+    sendData.sendMinute = datum.time.minute;
+    sendData.sendSecond = datum.time.seconds;
+    sendData.sendDayOfWeek = datum.time.dayOfWeek;
+    sendData.sendDist = datum.dist;
+    sendData.sendTemp = datum.tempExt;
+    sendData.sendHum  = datum.humExt;
+    sendData.gaugeID = SENSOR_ID;
+    esp_err_t sendResult = esp_now_send(0, (uint8_t *) &sendData, sizeof(sendData));
+    //--------------------------//
+
     int result = datum.repr(format_buf, FORMAT_BUF_SIZE);
     if(result < 0){}//format error
     else {//some or all data succesfuly formatted into buffer
@@ -390,4 +459,17 @@ void writeLog(const char* message)
     logFile.printf("%d/%d/20%d, %s: %s\nwake count: %d\n", GPS.month, GPS.day, GPS.year, displayTime(getTime()), message, wakeCounter);
     if(GPS_has_fix(GPS)) logFile.printf("%f, %f, %f\n", latitude_signed(GPS), longitude_signed(GPS), GPS.altitude);
     logFile.close();
+}
+
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
+{
+  // Do nothing special
+//  char macStr[18];
+//  Serial.print("Packet to: ");
+//  // Copies the sender mac address to a string
+//  snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
+//           mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
+//  Serial.print(macStr);
+//  Serial.print(" send status:\t");
+//  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
