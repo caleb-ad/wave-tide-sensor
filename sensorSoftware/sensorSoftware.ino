@@ -12,11 +12,11 @@
 
 //-------CONFIGURATION-------//
 #define DEBUG //comment out this line if monitoring over Serial is not desired
-#define READ_TIME 0.5 * 60//Length of time to measure (in seconds)
+#define READ_TIME 3 * 60//Length of time to measure (in seconds)
 
 // in non-continuous measurement mode measurements will be READ_TIME long and
 // centered on mulitples of this value after the hour
-#define MINUTE_ALLIGN 2//minutes
+#define MINUTE_ALLIGN 4//minutes
 
 // in continuous measurement mode the device never goes to sleep,
 // data is stored in the Data folder, a new file is created every READ_TIME seconds
@@ -93,14 +93,13 @@ struct sensorData {
 
 typedef struct sendStruct
 {
-  uint16_t sendYear;
   uint8_t sendMonth;
   uint8_t sendDay;
   uint8_t sendHour;
   uint8_t sendMinute;
   uint8_t sendSecond;
-  uint8_t sendDayOfWeek;
-  int sendDist;
+  uint16_t sendMillis;
+  uint16_t sendDist;
   float sendTemp;
   float sendHum;
   int gaugeID;
@@ -350,13 +349,12 @@ sensorData readData(File &data_file){
 
 
     //------COMMUNICATION-------//
-    sendData.sendYear = datum.time.year;
     sendData.sendMonth = datum.time.month;
     sendData.sendDay = datum.time.day;
     sendData.sendHour = datum.time.hour;
     sendData.sendMinute = datum.time.minute;
-    sendData.sendSecond = datum.time.seconds;
-    sendData.sendDayOfWeek = datum.time.dayOfWeek;
+    sendData.sendSecond = datum.time.second;
+    sendData.sendMillis = (millis() - gps_millis_offset)%1000;
     sendData.sendDist = datum.dist;
     sendData.sendTemp = datum.tempExt;
     sendData.sendHum  = datum.humExt;
@@ -464,12 +462,4 @@ void writeLog(const char* message)
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
 {
   // Do nothing special
-//  char macStr[18];
-//  Serial.print("Packet to: ");
-//  // Copies the sender mac address to a string
-//  snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
-//           mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
-//  Serial.print(macStr);
-//  Serial.print(" send status:\t");
-//  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
