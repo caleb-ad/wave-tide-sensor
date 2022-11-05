@@ -10,31 +10,33 @@
 #include <esp_now.h>
 #include <WiFi.h>
 
-//-------CONFIGURATION-------//
+//-----------------------------------------------------------------------------------------------------||
+//---------- Configuration ----------------------------------------------------------------------------||
+
 #define DEBUG //comment out this line if monitoring over Serial is not desired
 #define READ_TIME 3 * 60//Length of time to measure (in seconds)
 
-// in non-continuous measurement mode measurements will be READ_TIME long and
+// In non-continuous measurement mode measurements will be READ_TIME long and
 // centered on mulitples of this value after the hour
-#define MINUTE_ALLIGN 4//minutes
+#define MINUTE_ALLIGN 4 // Minutes
 
-// in continuous measurement mode the device never goes to sleep,
+// In continuous measurement mode the device never goes to sleep,
 // data is stored in the Data folder, a new file is created every READ_TIME seconds
-//#define CONTINUOUS //comment out this line if non-continuous measurement is desired
-//--------------------------//
+//#define CONTINUOUS // comment out this line if non-continuous measurement is desired
+
+//-----------------------------------------------------------------------------------------------------||
 
 
 
 
-//------COMMUNICATION-------//
-// MAC address of receiver module
-#define SENSOR_ID 1
-uint8_t broadcastAddress1[] = {0xC8, 0xC9, 0xA3, 0xC6, 0x1B, 0x44};
-esp_now_peer_info_t peerInfo;
-//--------------------------//
 
 
 
+
+
+
+//-----------------------------------------------------------------------------------------------------||
+//---------- Define Constants -------------------------------------------------------------------------||
 
 #define MEASUREMENT_HZ 5.64 //MB 7388 (10 meter sensor)
 //#define EFF_HZ 6.766 //MB 7388 (5 meter sensor)
@@ -59,6 +61,20 @@ esp_now_peer_info_t peerInfo;
 #define TEMP_SENSOR_ADDRESS 0x44
 #define TEMP_EN GPIO_NUM_15
 
+//-----------------------------------------------------------------------------------------------------||
+
+
+
+
+
+
+
+
+
+
+//-----------------------------------------------------------------------------------------------------||
+//---------- Declare Variables ------------------------------------------------------------------------||
+
 // The RTC slow timer is driven by the RTC slow clock, typically 150kHz
 uint64_t clock_start; //the rtc clock cycle count that we begin measuring at
 uint32_t gps_millis_offset = millis();
@@ -78,18 +94,25 @@ char format_buf[FORMAT_BUF_SIZE];
 volatile uint32_t num_gps_reads = 0;
 volatile bool measurement_request = false;
 
-//Objects to manage peripherals
+// Objects to manage peripherals
 Adafruit_GPS GPS(&Serial2);
 Adafruit_SHT31 tempSensor = Adafruit_SHT31();
 File data_file;
 
-struct sensorData {
+struct sensorData
+{
     UnixTime time;
     float tempExt;
     float humExt;
     int dist;
     int repr(char *buf, uint32_t n);
 };
+
+//------COMMUNICATION-------//
+#define SENSOR_ID 1
+// MAC address of receiver module
+uint8_t broadcastAddress1[] = {0xC8, 0xC9, 0xA3, 0xC6, 0x1B, 0x44};
+esp_now_peer_info_t peerInfo;
 
 typedef struct sendStruct
 {
@@ -106,9 +129,269 @@ typedef struct sendStruct
 } sendStruct;
 
 sendStruct sendData;
+//--------------------------//
+
+//-----------------------------------------------------------------------------------------------------||
+
+
+
+
+
+
+
+
+
+
+//-----------------------------------------------------------------------------------------------------||
+//---------- Functions --------------------------------------------------------------------------------||
+
+// Start GPS Clock
+void startGPS(Adafruit_GPS &gps)
+{
+  // 9600 NMEA is the default baud rate for Adafruit MTK GPS's- some use 4800
+  gps.begin(9600);
+  writeLog("GPS Serial Enabled");
+
+  // uncomment this line to turn on RMC (recommended minimum) and GGA (fix data) including altitude
+  gps.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCGGA);
+  //gps.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCONLY);
+  writeLog("Minimum Recommended Enabled");
+
+  // Set the update rate
+  gps.sendCommand(PMTK_SET_NMEA_UPDATE_10HZ);
+  writeLog("GPS Frequency Enabled");
+}
+
+// Return a current unix timestamp
+UnixTime getTime(void)
+{
+    UnixTime stamp(GPS_DIFF_FROM_GMT);
+
+    // If the GPS has a fix, use it to create a timestamp
+    if(GPS_has_fix(GPS)) stamp.setDateTime(2000 + GPS.year, GPS.month, GPS.day, GPS.hour, GPS.minute, GPS.seconds);
+
+    // Otherwise, use the esp32s builtin clock to estimate a time
+    else stamp.getDateTime(sleep_time + rtc_clk_usecs(sleep_cycles) / 1000000);
+
+    return stamp;
+}
+
+// Create a human readable time in PST
+// ex: 10:53:32.023
+char* displayTime(UnixTime now)
+{
+    snprintf(format_buf, FORMAT_BUF_SIZE, "%02d:%02d:%02d.%03d", GMT_to_PST(now.hour), now.minute, now.second, (millis() - gps_millis_offset)%1000);
+    return format_buf;
+}
+
+// Create a unix timestamp of the current time including milliseconds
+char* unixTime(UnixTime now)
+{
+    snprintf(format_buf, FORMAT_BUF_SIZE, "%d.%03d", now.getUnix(), (millis() - gps_millis_offset)%1000);
+    return format_buf;
+}
+
+// return signed latitude with the convention that north of the equator is positve
+inline float latitude_signed(Adafruit_GPS &gps)
+{
+    return (gps.lat == 'N') ? gps.latitude : -1.0 * gps.latitude;
+}
+
+//return signed longitude with the convention that east of the prime meridian is positive
+inline float longitude_signed(Adafruit_GPS &gps) {
+    return (gps.lon == 'E') ? gps.longitude : -1.0 * gps.longitude;
+}
+
+//Get a reading from the sonar
+//negative readings imply an error
+int32_t sonarMeasure(void)
+{
+    char inData[5] = {0}; //char array to read data into
+
+    // Maxbotix reports "Rxxxx\L", where xxxx is a 4 digit mm distance, '\L' is carriage return
+    // a measurement is 6 bytes
+    if(Serial1.available() <= 5) return -1;
+    //Measurements begin with 'R'
+    while(Serial1.read() != 'R')
+    {
+        if(Serial1.available() <= 5) return -2;
+    }
+
+    Serial1.readBytes(inData, 4);
+    if(Serial1.read() != 13) return -3; //check and discard carriage return
+
+    // Convert character array to an integer number
+    uint32_t result = atoi(inData);
+
+    // Turn on LED if measuring properly
+    // Maxbotix reports 500 if object is too close and 9999 is too far
+    // Or you'll get 0 if wired improperly
+    if ((result > 500) and (result < 9999))  digitalWrite(LED_BUILTIN, HIGH);
+    else digitalWrite(LED_BUILTIN, LOW);
+
+    return result;
+  }
+
+// represent this datum in ASCII text, and copy that representation into the given byte buffer
+int sensorData::repr(char *buf, uint32_t n)
+{
+    return snprintf(buf, n, "%s, %d, %f, %f\n",
+    unixTime(time),
+    dist,
+    tempExt,
+    humExt);
+}
+
+// Takes a measurement, formats it, and writes it to data storage in the given file
+// Should be called whenever sonar sensor has data ready
+sensorData readData(File &data_file)
+{
+    // Read data from the sonar, GPS clock, and temp/humidity sensor
+    sensorData datum = {0};
+    datum.dist = sonarMeasure();
+    datum.time = getTime();
+    datum.tempExt = celsius_to_fahrenheit(tempSensor.readTemperature());
+    datum.humExt = tempSensor.readHumidity();
+
+    // Send relevant data over espNow
+    //------COMMUNICATION-------//
+    sendData.sendMonth = datum.time.month;
+    sendData.sendDay = datum.time.day;
+    sendData.sendHour = datum.time.hour;
+    sendData.sendMinute = datum.time.minute;
+    sendData.sendSecond = datum.time.second;
+    sendData.sendMillis = (millis() - gps_millis_offset)%1000;
+    sendData.sendDist = datum.dist;
+    sendData.sendTemp = datum.tempExt;
+    sendData.sendHum  = datum.humExt;
+    sendData.gaugeID = SENSOR_ID;
+    esp_err_t sendResult = esp_now_send(0, (uint8_t *) &sendData, sizeof(sendData));
+    //--------------------------//
+
+    // Write the data to a new line in the open SD card file
+    int result = datum.repr(format_buf, FORMAT_BUF_SIZE);
+    if(result < 0){}//format error
+    else 
+    {
+        //some or all data succesfuly formatted into buffer
+        data_file.write((uint8_t*)format_buf, (uint32_t)result);
+        #ifdef DEBUG
+        Serial.write((uint8_t*)format_buf, (uint32_t)result);
+        #endif
+    }
+
+    return datum;
+}
+
+// Check or create header file
+void sd_card_init(void)
+{
+    // Check if file exists and create one if not
+    if (!SD.exists("/README.txt"))
+    {
+        File read_me = SD.open("/README.txt", FILE_WRITE);
+        if(!read_me) return;
+
+        // Create header with title, timestamp, and column names
+        read_me.println("");
+        read_me.printf(
+            "Cal Poly Tide Sensor\n"
+            "https://github.com/caleb-ad/wave-tide-sensor\n\n"
+            "Data File format:\n"
+            "Line   1: Latitude, Longitude, Altitude\n"
+            "Line 'n': UNIX Time, Distance (mm), External Temp (F), Humidity (%)\n",
+            unixTime(getTime()));
+        read_me.close();
+
+        SD.mkdir("/Data");
+    }
+}
+
+// Creates a file in the Data folder. This file will be closed before the esp32 enters sleep
+// If the GPS has a fix or has had a fix the file is named using the current time in hex.
+// Otherwise the file is named wakecount_millisecondsawake
+File create_file()
+{
+    //filenames are at most 8 characters + 6("/Data/") + 4(".txt") + null terminator = 19
+    if(GPS_has_fix(GPS) || sleep_time != 0) snprintf(format_buf, 19 , "/Data/%x.txt", getTime().getUnix());
+    else snprintf(format_buf, 19, "/Data/%x_%x.txt", wakeCounter, millis());
+
+    File file = SD.open(format_buf, FILE_WRITE, true);
+    assert(file);
+    return file;
+}
+
+// Powers down all peripherals, Sleeps until woken after set interval, runs setup() again
+void goto_sleep(void)
+{
+    // Print sleep time info
+    #ifdef DEBUG
+    Serial.printf("Going to sleep at %s\n", displayTime(getTime()));
+    if(GPS_has_fix(GPS)) Serial.println("GPS has fix");
+    #endif
+
+    writeLog("sleeping");
+
+    // Turn everything off
+    digitalWrite(LED_BUILTIN, LOW);
+    digitalWrite(GPS_CLOCK_EN, LOW);
+    digitalWrite(TEMP_EN, LOW);
+    digitalWrite(SONAR_EN, LOW);
+    gpio_hold_en(GPS_CLOCK_EN); // Make sure clock is off
+    gpio_hold_en(TEMP_EN); // Make sure temp sensor is off
+    gpio_hold_en(SONAR_EN); // Make sure Maxbotix is off
+    gpio_deep_sleep_hold_en();
+
+    sleep_time = getTime().getUnix();
+    sleep_cycles = rtc_time_get();
+    
+    // Schedule to wake up so that the next measurements are centered at the next scheduled measurement time
+    if(GPS_has_fix(GPS))
+    {
+        uint64_t next_measurement = (MINUTE_ALLIGN - (GPS.minute % MINUTE_ALLIGN)) * (60 * 1000000) - (GPS.seconds * 1000000) - ((millis() - gps_millis_offset) % 1000) * 1000;
+        esp_sleep_enable_timer_wakeup(
+            next_measurement > half_read_time ?
+            next_measurement - half_read_time :
+            next_measurement + (MINUTE_ALLIGN * 60 * 1000000) - half_read_time );
+    }
+    else
+    {
+        // when the GPS does not have a fix sleep for the correct interval, the GPS may have previously had a fix
+        //*This could overflow
+        esp_sleep_enable_timer_wakeup(1000000 * 60 * MINUTE_ALLIGN  - rtc_clk_usecs(clock_start));
+    }
+
+    esp_deep_sleep_start();
+}
+
+// Write a message to a log file for debugging
+void writeLog(const char* message)
+{
+    //Open log file and write to it
+    File logFile = SD.open("/logFile.txt", FILE_WRITE);
+    if(!logFile) return;
+    //logFile.seek(logFile.size());
+    logFile.printf("%d/%d/20%d, %s: %s\nwake count: %d\n", GPS.month, GPS.day, GPS.year, displayTime(getTime()), message, wakeCounter);
+    if(GPS_has_fix(GPS)) logFile.printf("%f, %f, %f\n", latitude_signed(GPS), longitude_signed(GPS), GPS.altitude);
+    logFile.close();
+}
+
+// Callback function for Serial1.onReceive
+void sonarDataReady(void)
+{
+    // When new data is available on the Serial1 line, update the measurement request
+    measurement_request = true;
+}
+
+// Callback function for espNow
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
+{
+  // Do nothing special
+}
 
 // every 10ms schedule a read from the GPS, when
-bool gps_polling_isr(void* arg) {
+bool gps_polling_isr(void* arg)
+{
     num_gps_reads += 1;
     timer_group_clr_intr_status_in_isr(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0);
     return false;
@@ -117,14 +400,28 @@ bool gps_polling_isr(void* arg) {
 inline bool GPS_has_fix(Adafruit_GPS &gps) { return gps.fixquality >= 1; }
 
 // returns time in microseconds since 'prev' as measured by rtc clk
-inline uint64_t rtc_clk_usecs(uint64_t prev) {return (1000000 * (rtc_time_get() - prev)) / rtc_slow_clk_hz; }
-
-void sonarDataReady(void) {
-    measurement_request = true;
+inline uint64_t rtc_clk_usecs(uint64_t prev)
+{
+    return (1000000 * (rtc_time_get() - prev)) / rtc_slow_clk_hz;
 }
 
-void setup(void) {
+//-----------------------------------------------------------------------------------------------------||
 
+
+
+
+
+
+
+
+
+
+//-----------------------------------------------------------------------------------------------------||
+//---------- Main Program -----------------------------------------------------------------------------||
+
+void setup(void)
+{
+    // Setup for espNow communication
     //------COMMUNICATION-------//
     WiFi.mode(WIFI_STA);
     
@@ -145,28 +442,29 @@ void setup(void) {
       Serial.println("Failed to add peer");
       return;
     }
-    
     //--------------------------//
+
     // Clock cycle count when we begin measuring
     clock_start = rtc_time_get();
 
     // Assert that constants and defines are in valid state
     assert(READ_TIME < MINUTE_ALLIGN * 60);
 
-    //Setup for SD card
+    // Setup for SD card
     pinMode(SD_CS, OUTPUT);
     assert(SD.begin(SD_CS));
 
-    //9600 bps for Maxbotix
-    Serial1.begin(9600, SERIAL_8N1, SONAR_RX, SONAR_TX); //Maxbotix
+    // Enable serial port peripherals
+    Serial1.begin(9600, SERIAL_8N1, SONAR_RX, SONAR_TX); // Maxbotix requires 9600bps
     Serial1.onReceive(sonarDataReady, true); // register callback
     Serial1.setRxTimeout(10);
     startGPS(GPS); //uses Serial2
     writeLog("Serial Ports Enabled");
 
 
-    //Run Setup, check SD file every 1000th wake cycle
-    if ((wakeCounter % 1000) == 0) {
+    // Run Setup, check SD file every 1000th wake cycle
+    if ((wakeCounter % 1000) == 0)
+    {
         wakeCounter = 0;
         sd_card_init();
         //TODO get measurements to allign with 15 min intervals
@@ -215,8 +513,11 @@ void setup(void) {
 
 }
 
-void loop(void) {
-    while(num_gps_reads > 0){
+void loop(void)
+{
+    // Get new information from GPS
+    while(num_gps_reads > 0)
+    {
         GPS.read(); //if GPS.read() takes longer than the GPS polling frequency, execution may get stuck in this loop
         num_gps_reads -= 1;
         if(GPS.newNMEAreceived()) {
@@ -228,11 +529,17 @@ void loop(void) {
             gps_millis_offset = millis() - GPS.milliseconds;
         }
     }
-    if(measurement_request) {
+
+    // If there is new sonar data, read it
+    if(measurement_request)
+    {
         measurement_request = false;
         readData(data_file);
     }
-    if(rtc_clk_usecs(clock_start) >= READ_TIME * 1000000){
+
+    // If it is time to go to sleep, close the data file and enter sleep mode
+    if(rtc_clk_usecs(clock_start) >= READ_TIME * 1000000)
+    {
         writeLog("Finished measurement");
         #ifdef CONTINUOUS
         data_file.close();
@@ -246,220 +553,4 @@ void loop(void) {
         #endif
     }
 }
-
-// Start GPS Clock
-void startGPS(Adafruit_GPS &gps)
-{
-  // 9600 NMEA is the default baud rate for Adafruit MTK GPS's- some use 4800
-  gps.begin(9600);
-  writeLog("GPS Serial Enabled");
-
-  // uncomment this line to turn on RMC (recommended minimum) and GGA (fix data) including altitude
-  gps.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCGGA);
-  //gps.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCONLY);
-  writeLog("Minimum Recommended Enabled");
-
-  // Set the update rate
-  gps.sendCommand(PMTK_SET_NMEA_UPDATE_10HZ);
-  writeLog("GPS Frequency Enabled");
-}
-
-// Return a current time_stamp
-UnixTime getTime(void)
-{
-    UnixTime stamp(GPS_DIFF_FROM_GMT);
-
-    if(GPS_has_fix(GPS)) {
-        stamp.setDateTime(2000 + GPS.year, GPS.month, GPS.day, GPS.hour, GPS.minute, GPS.seconds);
-    }
-    else {
-        stamp.getDateTime(sleep_time + rtc_clk_usecs(sleep_cycles) / 1000000);
-    }
-
-    return stamp;
-}
-
-//human readable time, in PST
-char* displayTime(UnixTime now) {
-    snprintf(format_buf, FORMAT_BUF_SIZE, "%02d:%02d:%02d.%03d", GMT_to_PST(now.hour), now.minute, now.second, (millis() - gps_millis_offset)%1000);
-    return format_buf;
-}
-
-char* unixTime(UnixTime now) {
-    snprintf(format_buf, FORMAT_BUF_SIZE, "%d.%03d", now.getUnix(), (millis() - gps_millis_offset)%1000);
-    return format_buf;
-}
-
-// return signed latitude with the convention that north of the equator is positve
-inline float latitude_signed(Adafruit_GPS &gps) {
-    return (gps.lat == 'N') ? gps.latitude : -1.0 * gps.latitude;
-}
-
-//return signed longitude with the convention that east of the prime meridian is positive
-inline float longitude_signed(Adafruit_GPS &gps) {
-    return (gps.lon == 'E') ? gps.longitude : -1.0 * gps.longitude;
-}
-
-//Get a reading from the sonar
-//negative readings imply an error
-int32_t sonarMeasure(void) {
-    char inData[5] = {0}; //char array to read data into
-
-    //Maxbotix reports "Rxxxx\L", where xxxx is a 4 digit mm distance, '\L' is carriage return
-    //a measurement is 6 bytes
-    if(Serial1.available() <= 5) return -1;
-    //Measurements begin with 'R'
-    while(Serial1.read() != 'R') {
-        if(Serial1.available() <= 5) return -2;
-    }
-
-    Serial1.readBytes(inData, 4);
-    if(Serial1.read() != 13) return -3; //check and discard carriage return
-
-    uint result = atoi(inData);
-
-    //Turn on LED if measuring properly
-    //Maxbotix reports 300 if object is too close
-    //or you'll get 0 if wired improperly
-    if ((result > 500) and (result < 9999)) {
-        digitalWrite(LED_BUILTIN, HIGH);
-    }
-    else digitalWrite(LED_BUILTIN, LOW);
-
-    return result;
-  }
-
-// represent this datum in ASCII text, and copy that representation into the given byte buffer
-int sensorData::repr(char *buf, uint32_t n) {
-    return snprintf(buf, n, "%s, %d, %f, %f\n",
-    unixTime(time),
-    dist,
-    tempExt,
-    humExt);
-}
-
-//Takes a measurement, formats it, and writes it to data storage in the given file
-//Should be called whenever sonar sensor has data ready
-sensorData readData(File &data_file){
-    sensorData datum = {0};
-    datum.dist = sonarMeasure();
-    datum.time = getTime();
-    datum.tempExt = celsius_to_fahrenheit(tempSensor.readTemperature());
-    datum.humExt = tempSensor.readHumidity();
-
-
-    //------COMMUNICATION-------//
-    sendData.sendMonth = datum.time.month;
-    sendData.sendDay = datum.time.day;
-    sendData.sendHour = datum.time.hour;
-    sendData.sendMinute = datum.time.minute;
-    sendData.sendSecond = datum.time.second;
-    sendData.sendMillis = (millis() - gps_millis_offset)%1000;
-    sendData.sendDist = datum.dist;
-    sendData.sendTemp = datum.tempExt;
-    sendData.sendHum  = datum.humExt;
-    sendData.gaugeID = SENSOR_ID;
-    esp_err_t sendResult = esp_now_send(0, (uint8_t *) &sendData, sizeof(sendData));
-    //--------------------------//
-
-    int result = datum.repr(format_buf, FORMAT_BUF_SIZE);
-    if(result < 0){}//format error
-    else {//some or all data succesfuly formatted into buffer
-        data_file.write((uint8_t*)format_buf, (uint32_t)result);
-        #ifdef DEBUG
-        Serial.write((uint8_t*)format_buf, (uint32_t)result);
-        #endif
-    }
-
-    return datum;
-}
-
-//Check or create header file
-void sd_card_init(void)
-{
-    //Check if file exists and create one if not
-    if (!SD.exists("/README.txt"))
-    {
-        File read_me = SD.open("/README.txt", FILE_WRITE);
-        if(!read_me) return;
-
-        //Create header with title, timestamp, and column names
-        read_me.println("");
-        read_me.printf(
-            "Cal Poly Tide Sensor\n"
-            "https://github.com/caleb-ad/wave-tide-sensor\n\n"
-            "Data File format:\n"
-            "Line   1: Latitude, Longitude, Altitude\n"
-            "Line 'n': UNIX Time, Distance (mm), External Temp (F), Humidity (%)\n",
-            unixTime(getTime()));
-        read_me.close();
-
-        SD.mkdir("/Data");
-    }
-}
-
-//Creates a file in the Data folder
-//if the GPS has had a fix or has had a fix the file is named using the current time in hex.
-//otherwise the file is named wakecount_millisecondsawake
-File create_file() {
-    //filenames are at most 8 characters + 6("/Data/") + 4(".txt") + null terminator = 19
-    if(GPS_has_fix(GPS) || sleep_time != 0) snprintf(format_buf, 19 , "/Data/%x.txt", getTime().getUnix());
-    else snprintf(format_buf, 19, "/Data/%x_%x.txt", wakeCounter, millis());
-    File file = SD.open(format_buf, FILE_WRITE, true);
-    assert(file);
-    return file;
-}
-
-//Powers down all peripherals, Sleeps until woken after set interval, runs setup() again
-void goto_sleep(void) {
-    //Print sleep time info
-    #ifdef DEBUG
-    Serial.printf("Going to sleep at %s\n", displayTime(getTime()));
-    if(GPS_has_fix(GPS)) Serial.println("GPS has fix");
-    #endif
-
-    writeLog("sleeping");
-
-    //Turn everything off
-    digitalWrite(LED_BUILTIN, LOW);
-    digitalWrite(GPS_CLOCK_EN, LOW);
-    digitalWrite(TEMP_EN, LOW);
-    digitalWrite(SONAR_EN, LOW);
-    gpio_hold_en(GPS_CLOCK_EN); //Make sure clock is off
-    gpio_hold_en(TEMP_EN); //Make sure temp sensor is off
-    gpio_hold_en(SONAR_EN); //Make sure Maxbotix is off
-    gpio_deep_sleep_hold_en();
-
-    sleep_time = getTime().getUnix();
-    sleep_cycles = rtc_time_get();
-    //schedule to wake up so that the next measurements are centered at the next shceduled measurement time
-    if(GPS_has_fix(GPS)) {
-        uint64_t next_measurement = (MINUTE_ALLIGN - (GPS.minute % MINUTE_ALLIGN)) * (60 * 1000000) - (GPS.seconds * 1000000) - ((millis() - gps_millis_offset) % 1000) * 1000;
-        esp_sleep_enable_timer_wakeup(
-            next_measurement > half_read_time ?
-            next_measurement - half_read_time :
-            next_measurement + (MINUTE_ALLIGN * 60 * 1000000) - half_read_time );
-    }
-    else { // when the GPS does not have a fix sleep for the correct interval, the GPS may have previously had a fix
-        //*This could overflow
-        esp_sleep_enable_timer_wakeup(1000000 * 60 * MINUTE_ALLIGN  - rtc_clk_usecs(clock_start));
-    }
-
-    esp_deep_sleep_start();
-}
-
-void writeLog(const char* message)
-{
-    //Open log file and write to it
-    File logFile = SD.open("/logFile.txt", FILE_WRITE);
-    if(!logFile) return;
-    //logFile.seek(logFile.size());
-    logFile.printf("%d/%d/20%d, %s: %s\nwake count: %d\n", GPS.month, GPS.day, GPS.year, displayTime(getTime()), message, wakeCounter);
-    if(GPS_has_fix(GPS)) logFile.printf("%f, %f, %f\n", latitude_signed(GPS), longitude_signed(GPS), GPS.altitude);
-    logFile.close();
-}
-
-void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
-{
-  // Do nothing special
-}
+//-----------------------------------------------------------------------------------------------------||
