@@ -1,3 +1,13 @@
+/**
+ * @file sensorSoftware.ino
+ * @author Caleb Dennis
+ * @author Alexander Dunn
+ * @date 2022-11-05
+ * 
+ * @copyright Copyright (c) 2022
+ * 
+ */
+
 #include <utility>
 #include <Wire.h>
 #include <SPI.h>
