@@ -24,6 +24,7 @@
 //---------- Configuration ----------------------------------------------------------------------------||
 
 #define DEBUG //comment out this line if monitoring over Serial is not desired
+//#define TRANSMIT // Comment out this line if you do not wih to transmit data over espNow
 #define READ_TIME 3 * 60//Length of time to measure (in seconds)
 
 // In non-continuous measurement mode measurements will be READ_TIME long and
@@ -265,17 +266,19 @@ sensorData readData(File &data_file)
 
     // Send relevant data over espNow
     //------COMMUNICATION-------//
-    sendData.sendMonth = datum.time.month;
-    sendData.sendDay = datum.time.day;
-    sendData.sendHour = datum.time.hour;
-    sendData.sendMinute = datum.time.minute;
-    sendData.sendSecond = datum.time.second;
-    sendData.sendMillis = (millis() - gps_millis_offset)%1000;
-    sendData.sendDist = datum.dist;
-    sendData.sendTemp = datum.tempExt;
-    sendData.sendHum  = datum.humExt;
-    sendData.gaugeID = SENSOR_ID;
-    esp_err_t sendResult = esp_now_send(0, (uint8_t *) &sendData, sizeof(sendData));
+    #ifdef TRANSMIT
+      sendData.sendMonth = datum.time.month;
+      sendData.sendDay = datum.time.day;
+      sendData.sendHour = datum.time.hour;
+      sendData.sendMinute = datum.time.minute;
+      sendData.sendSecond = datum.time.second;
+      sendData.sendMillis = (millis() - gps_millis_offset)%1000;
+      sendData.sendDist = datum.dist;
+      sendData.sendTemp = datum.tempExt;
+      sendData.sendHum  = datum.humExt;
+      sendData.gaugeID = SENSOR_ID;
+      esp_err_t sendResult = esp_now_send(0, (uint8_t *) &sendData, sizeof(sendData));
+    #endif
     //--------------------------//
 
     // Write the data to a new line in the open SD card file
@@ -433,25 +436,27 @@ void setup(void)
 {
     // Setup for espNow communication
     //------COMMUNICATION-------//
-    WiFi.mode(WIFI_STA);
-    
-    if (esp_now_init() != ESP_OK)
-    {
-      Serial.println("Error initializing ESP-NOW");
-      return;
-    }
-    esp_now_register_send_cb(OnDataSent);
-
-    // register peer
-    peerInfo.channel = 0;  
-    peerInfo.encrypt = false;
-    memcpy(peerInfo.peer_addr, broadcastAddress1, 6);
-
-    if (esp_now_add_peer(&peerInfo) != ESP_OK)
-    {
-      Serial.println("Failed to add peer");
-      return;
-    }
+    #ifdef TRANSMIT
+      WiFi.mode(WIFI_STA);
+      
+      if (esp_now_init() != ESP_OK)
+      {
+        Serial.println("Error initializing ESP-NOW");
+        return;
+      }
+      esp_now_register_send_cb(OnDataSent);
+  
+      // register peer
+      peerInfo.channel = 0;  
+      peerInfo.encrypt = false;
+      memcpy(peerInfo.peer_addr, broadcastAddress1, 6);
+  
+      if (esp_now_add_peer(&peerInfo) != ESP_OK)
+      {
+        Serial.println("Failed to add peer");
+        return;
+      }
+    #endif
     //--------------------------//
 
     // Clock cycle count when we begin measuring
