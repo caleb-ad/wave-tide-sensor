@@ -23,17 +23,20 @@
 //-----------------------------------------------------------------------------------------------------||
 //---------- Configuration ----------------------------------------------------------------------------||
 
-#define DEBUG //comment out this line if monitoring over Serial is not desired
+#define DEBUG // Comment out this line if monitoring over Serial is not desired
+
 //#define TRANSMIT // Comment out this line if you do not wih to transmit data over espNow
-#define READ_TIME 3 * 60//Length of time to measure (in seconds)
 
-// In non-continuous measurement mode measurements will be READ_TIME long and
-// centered on mulitples of this value after the hour
-#define MINUTE_ALLIGN 4 // Minutes
+/* In non-continuous measurement mode measurements will be READ_TIME long and
+ * centered on mulitples of MINUTE_ALLIGN value after the hour
+ */
+#define READ_TIME 20 // Length of time to measure (in seconds)
+#define MINUTE_ALLIGN 2 // Minutes
 
-// In continuous measurement mode the device never goes to sleep,
-// data is stored in the Data folder, a new file is created every READ_TIME seconds
-//#define CONTINUOUS // comment out this line if non-continuous measurement is desired
+/* In continuous measurement mode the device never goes to sleep,
+ * data is stored in the Data folder, a new file is created every READ_TIME seconds
+ */
+//#define CONTINUOUS // Comment out this line if non-continuous measurement is desired
 
 //-----------------------------------------------------------------------------------------------------||
 
@@ -53,9 +56,11 @@
 //#define EFF_HZ 6.766 //MB 7388 (5 meter sensor)
 
 #define celsius_to_fahrenheit(__celsius) ((__celsius) * 9.0 / 5.0 + 32.0)
-#define GMT_to_PST(__GMT) (((__GMT) + 17) % 24)
+#define GMT_to_PST(__GMT) (((__GMT) + 16) % 24)
 
 #define FORMAT_BUF_SIZE 200//(bytes) if this is too small some data lines may be truncated
+
+#define FIX_DELAY 60 // Seconds to wait for GPS fix on first startup
 
 #define SD_CS GPIO_NUM_5 //SD card chip select pin
 
@@ -117,6 +122,7 @@ struct sensorData
     float humExt;
     int dist;
     int repr(char *buf, uint32_t n);
+    int fixType;
 };
 
 //------COMMUNICATION-------//
@@ -246,11 +252,12 @@ int32_t sonarMeasure(void)
 // represent this datum in ASCII text, and copy that representation into the given byte buffer
 int sensorData::repr(char *buf, uint32_t n)
 {
-    return snprintf(buf, n, "%s, %d, %f, %f\n",
+    return snprintf(buf, n, "%s, %d, %f, %f, %d\n",
     unixTime(time),
     dist,
     tempExt,
-    humExt);
+    humExt,
+    fixType);
 }
 
 // Takes a measurement, formats it, and writes it to data storage in the given file
@@ -263,6 +270,7 @@ sensorData readData(File &data_file)
     datum.time = getTime();
     datum.tempExt = celsius_to_fahrenheit(tempSensor.readTemperature());
     datum.humExt = tempSensor.readHumidity();
+    datum.fixType = GPS_has_fix(GPS);
 
     // Send relevant data over espNow
     //------COMMUNICATION-------//
@@ -289,7 +297,7 @@ sensorData readData(File &data_file)
         //some or all data succesfuly formatted into buffer
         data_file.write((uint8_t*)format_buf, (uint32_t)result);
         #ifdef DEBUG
-        Serial.write((uint8_t*)format_buf, (uint32_t)result);
+          Serial.write((uint8_t*)format_buf, (uint32_t)result);
         #endif
     }
 
@@ -337,12 +345,6 @@ File create_file()
 // Powers down all peripherals, Sleeps until woken after set interval, runs setup() again
 void goto_sleep(void)
 {
-    // Print sleep time info
-    #ifdef DEBUG
-    Serial.printf("Going to sleep at %s\n", displayTime(getTime()));
-    if(GPS_has_fix(GPS)) Serial.println("GPS has fix");
-    #endif
-
     writeLog("sleeping");
 
     // Turn everything off
@@ -357,22 +359,33 @@ void goto_sleep(void)
 
     sleep_time = getTime().getUnix();
     sleep_cycles = rtc_time_get();
+
+    uint64_t sleepTime = 0;
     
     // Schedule to wake up so that the next measurements are centered at the next scheduled measurement time
     if(GPS_has_fix(GPS))
     {
         uint64_t next_measurement = (MINUTE_ALLIGN - (GPS.minute % MINUTE_ALLIGN)) * (60 * 1000000) - (GPS.seconds * 1000000) - ((millis() - gps_millis_offset) % 1000) * 1000;
-        esp_sleep_enable_timer_wakeup(
-            next_measurement > half_read_time ?
+        sleepTime = next_measurement > half_read_time ?
             next_measurement - half_read_time :
-            next_measurement + (MINUTE_ALLIGN * 60 * 1000000) - half_read_time );
+            next_measurement + (MINUTE_ALLIGN * 60 * 1000000) - half_read_time;
+        esp_sleep_enable_timer_wakeup(sleepTime);
+            
     }
     else
     {
-        // when the GPS does not have a fix sleep for the correct interval, the GPS may have previously had a fix
+        // When the GPS does not have a fix sleep for the correct interval, the GPS may have previously had a fix
         //*This could overflow
-        esp_sleep_enable_timer_wakeup(1000000 * 60 * MINUTE_ALLIGN  - rtc_clk_usecs(clock_start));
+        sleepTime = 1000000 * 60 * MINUTE_ALLIGN  - rtc_clk_usecs(clock_start);
+        esp_sleep_enable_timer_wakeup(sleepTime);
     }
+
+    // Print sleep time info
+    #ifdef DEBUG
+    Serial.printf("Going to sleep at %s\n", displayTime(getTime()));
+    Serial.printf("Sleeping for %d seconds\n", sleepTime/1000000);
+    if(GPS_has_fix(GPS)) Serial.println("GPS has fix");
+    #endif
 
     esp_deep_sleep_start();
 }
@@ -418,6 +431,39 @@ inline uint64_t rtc_clk_usecs(uint64_t prev)
     return (1000000 * (rtc_time_get() - prev)) / rtc_slow_clk_hz;
 }
 
+void getFix(Adafruit_GPS &gps)
+{
+  #ifdef DEBUG
+    Serial.printf("Waiting %d seconds for GPS fix\n", FIX_DELAY);
+  #endif
+  
+  uint32_t start = millis();
+  uint8_t fixType = 0;
+
+  // Wait a minute to try and get a fix
+  while ((millis() - start) < FIX_DELAY*1000)
+  {
+    gps.read();
+    if(gps.newNMEAreceived())
+    {
+      gps.parse(gps.lastNMEA());  // this also sets the newNMEAreceived() flag to false
+      fixType = gps.fixquality;
+    }
+    
+    if (fixType)
+    {
+      #ifdef DEBUG
+        Serial.printf("GPS fix found after %d seconds\n", (millis()-start)/1000);
+      #endif
+      return;
+    }
+  }
+
+  #ifdef DEBUG
+    Serial.println("No GPS fix acquired");
+  #endif
+}
+
 //-----------------------------------------------------------------------------------------------------||
 
 
@@ -434,97 +480,96 @@ inline uint64_t rtc_clk_usecs(uint64_t prev)
 
 void setup(void)
 {
-    // Setup for espNow communication
-    //------COMMUNICATION-------//
-    #ifdef TRANSMIT
-      WiFi.mode(WIFI_STA);
-      
-      if (esp_now_init() != ESP_OK)
-      {
-        Serial.println("Error initializing ESP-NOW");
-        return;
-      }
-      esp_now_register_send_cb(OnDataSent);
-  
-      // register peer
-      peerInfo.channel = 0;  
-      peerInfo.encrypt = false;
-      memcpy(peerInfo.peer_addr, broadcastAddress1, 6);
-  
-      if (esp_now_add_peer(&peerInfo) != ESP_OK)
-      {
-        Serial.println("Failed to add peer");
-        return;
-      }
-    #endif
-    //--------------------------//
+  // Clock cycle count when we begin measuring
+  clock_start = rtc_time_get();
 
-    // Clock cycle count when we begin measuring
-    clock_start = rtc_time_get();
+  // Assert that constants and defines are in valid state
+  assert(READ_TIME < MINUTE_ALLIGN * 60);
 
-    // Assert that constants and defines are in valid state
-    assert(READ_TIME < MINUTE_ALLIGN * 60);
+  // Setup for SD card
+  pinMode(SD_CS, OUTPUT);
+  assert(SD.begin(SD_CS));
 
-    // Setup for SD card
-    pinMode(SD_CS, OUTPUT);
-    assert(SD.begin(SD_CS));
+  // Enable serial port peripherals
+  Serial1.begin(9600, SERIAL_8N1, SONAR_RX, SONAR_TX); // Maxbotix requires 9600bps
+  Serial1.onReceive(sonarDataReady, true); // register callback
+  Serial1.setRxTimeout(10);
+  startGPS(GPS); //uses Serial2
+  writeLog("Serial Ports Enabled");
 
-    // Enable serial port peripherals
-    Serial1.begin(9600, SERIAL_8N1, SONAR_RX, SONAR_TX); // Maxbotix requires 9600bps
-    Serial1.onReceive(sonarDataReady, true); // register callback
-    Serial1.setRxTimeout(10);
-    startGPS(GPS); //uses Serial2
-    writeLog("Serial Ports Enabled");
+  // configure timer to manage GPS polling
+  timer_config_t timer_polling_config;
+  timer_polling_config.alarm_en = timer_alarm_t::TIMER_ALARM_EN;
+  timer_polling_config.auto_reload = timer_autoreload_t::TIMER_AUTORELOAD_EN;
+  timer_polling_config.counter_dir = timer_count_dir_t::TIMER_COUNT_UP;
+  timer_polling_config.divider = 2; //should be in [2, 65536]
+  timer_init(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, &timer_polling_config);
+  timer_set_alarm_value(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, rtc_abp_clk_hz / (2 * GPS_POLLING_HZ)); // configure timer to count 10 millis
+  timer_isr_callback_add(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, gps_polling_isr, nullptr, ESP_INTR_FLAG_LOWMED);
+  timer_enable_intr(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0);
+  timer_start(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0);
 
+  //Turn on relevant pins
+  gpio_hold_dis(GPIO_NUM_15);
+  gpio_hold_dis(GPIO_NUM_33);
+  gpio_hold_dis(GPIO_NUM_27);
+  pinMode(GPS_CLOCK_EN, OUTPUT);
+  pinMode(TEMP_EN, OUTPUT);
+  pinMode(SONAR_EN, OUTPUT);
+  digitalWrite(GPS_CLOCK_EN, HIGH); //Hold clock high
+  digitalWrite(TEMP_EN, HIGH); //Hold high to supply power to temp sensor
+  digitalWrite(SONAR_EN, HIGH); //Hold high to begin measuring with sonar
+  writeLog("Start/Stop Enabled");
 
-    // Run Setup, check SD file every 1000th wake cycle
-    if ((wakeCounter % 1000) == 0)
-    {
-        wakeCounter = 0;
-        sd_card_init();
-        //TODO get measurements to allign with 15 min intervals
-        //TODO wait for GPS to get fix?
-    }
-    wakeCounter += 1;
+  //Setup for temp/humidity
+  tempSensor.begin(TEMP_SENSOR_ADDRESS); //Hex Address for new I2C pins
+  writeLog("Temp Sensor Enabled");
 
-    // configure timer to manage GPS polling
-    timer_config_t timer_polling_config;
-    timer_polling_config.alarm_en = timer_alarm_t::TIMER_ALARM_EN;
-    timer_polling_config.auto_reload = timer_autoreload_t::TIMER_AUTORELOAD_EN;
-    timer_polling_config.counter_dir = timer_count_dir_t::TIMER_COUNT_UP;
-    timer_polling_config.divider = 2; //should be in [2, 65536]
-    timer_init(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, &timer_polling_config);
-    timer_set_alarm_value(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, rtc_abp_clk_hz / (2 * GPS_POLLING_HZ)); // configure timer to count 10 millis
-    timer_isr_callback_add(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0, gps_polling_isr, nullptr, ESP_INTR_FLAG_LOWMED);
-    timer_enable_intr(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0);
-    timer_start(timer_group_t::TIMER_GROUP_0, timer_idx_t::TIMER_0);
+  //Setup for LED
+  pinMode(LED_BUILTIN, OUTPUT);
+  writeLog("LEDs enabled");
 
-    //Turn on relevant pins
-    gpio_hold_dis(GPIO_NUM_15);
-    gpio_hold_dis(GPIO_NUM_33);
-    gpio_hold_dis(GPIO_NUM_27);
-    pinMode(GPS_CLOCK_EN, OUTPUT);
-    pinMode(TEMP_EN, OUTPUT);
-    pinMode(SONAR_EN, OUTPUT);
-    digitalWrite(GPS_CLOCK_EN, HIGH); //Hold clock high
-    digitalWrite(TEMP_EN, HIGH); //Hold high to supply power to temp sensor
-    digitalWrite(SONAR_EN, HIGH); //Hold high to begin measuring with sonar
-    writeLog("Start/Stop Enabled");
-
-    //Setup for temp/humidity
-    tempSensor.begin(TEMP_SENSOR_ADDRESS); //Hex Address for new I2C pins
-    writeLog("Temp Sensor Enabled");
-
-    //Setup for LED
-    pinMode(LED_BUILTIN, OUTPUT);
-    writeLog("LEDs enabled");
-
-    data_file = create_file();
-
-    #ifdef DEBUG
+  #ifdef DEBUG
     Serial.begin(115200); //Serial monitor
     Serial.printf("Wake Counter: %d\n", wakeCounter);
-    #endif
+  #endif
+
+  // Run Setup, check SD file every 1000th wake cycle
+  if ((wakeCounter % 1000) == 0)
+  {
+      wakeCounter = 0;
+      sd_card_init();
+      getFix(GPS);
+      //TODO get measurements to allign with 15 min intervals
+  }
+  wakeCounter += 1;
+    
+  // Setup for espNow communication
+  //------COMMUNICATION-------//
+  #ifdef TRANSMIT
+    WiFi.mode(WIFI_STA);
+    
+    if (esp_now_init() != ESP_OK)
+    {
+      Serial.println("Error initializing ESP-NOW");
+      return;
+    }
+    esp_now_register_send_cb(OnDataSent);
+
+    // register peer
+    peerInfo.channel = 0;  
+    peerInfo.encrypt = false;
+    memcpy(peerInfo.peer_addr, broadcastAddress1, 6);
+
+    if (esp_now_add_peer(&peerInfo) != ESP_OK)
+    {
+      Serial.println("Failed to add peer");
+      return;
+    }
+  #endif
+  //--------------------------//
+
+  data_file = create_file();
 
 }
 
